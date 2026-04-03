@@ -1,94 +1,102 @@
 from __future__ import annotations
 
-import subprocess
+import csv
 from pathlib import Path
-from typing import Dict, Set
 
 from Bio import SeqIO
 from Bio.Seq import Seq
 
-
-def reverse_complement_fasta(infile: Path, outfile: Path) -> None:
-    records = []
-    for rec in SeqIO.parse(str(infile), "fasta"):
-        rec.seq = rec.seq.reverse_complement()
-        records.append(rec)
-    with open(outfile, "w") as handle:
-        SeqIO.write(records, handle, "fasta")
+from .repeatpeps import run_diamond_blastx, ensure_repeatpeps_db, parse_top_hit_per_query
 
 
-def run_blastx_orientation(
-    family_fa: Path,
-    db_dmnd: Path,
-    outfile: Path,
-    diamond_bin: str,
-    threads: int,
-    logger,
+def rewrite_repmod_header(
+    input_fasta: Path,
+    output_fasta: Path,
+    original_name: str,
+    new_header: str,
 ) -> Path:
-    if outfile.exists() and outfile.stat().st_size > 0:
-        return outfile
+    records = []
+    for rec in SeqIO.parse(str(input_fasta), "fasta"):
+        header = rec.id.replace(original_name, new_header)
+        rec.id = header
+        rec.description = header
+        records.append(rec)
 
-    cmd = [
-        diamond_bin,
-        "blastx",
-        "--threads", str(threads),
-        "--db", str(db_dmnd),
-        "--query", str(family_fa),
-        "--outfmt", "6",
-        "--evalue", "1e-15",
-        "--out", str(outfile),
-    ]
-    logger.info("Running blastx orientation check for %s", family_fa.name)
-    subprocess.run(cmd, check=True)
-    return outfile
+    with open(output_fasta, "w") as handle:
+        SeqIO.write(records, handle, "fasta")
+    return output_fasta
 
 
-def maybe_reorient_family(
-    short_id: str,
-    family_dir: Path,
-    db_dmnd: Path,
+def reverse_complement_fasta(input_fasta: Path, output_fasta: Path) -> Path:
+    records = []
+    for rec in SeqIO.parse(str(input_fasta), "fasta"):
+        rec.seq = Seq(str(rec.seq)).reverse_complement()
+        records.append(rec)
+
+    with open(output_fasta, "w") as handle:
+        SeqIO.write(records, handle, "fasta")
+    return output_fasta
+
+
+def orient_group_files(
+    family_table_tsv: Path,
+    te_aid_dir: Path,
     diamond_bin: str,
+    repeatpeps_db_dir: Path,
     threads: int,
     logger,
-) -> bool:
-    rep = family_dir / f"{short_id}_rep.fa"
-    rep_mod = family_dir / f"{short_id}_rep_mod.fa"
-    msa = family_dir / f"{short_id}_MSA_extended.fa"
-    out = family_dir / f"{short_id}_extended_rep_blastx.out"
+) -> None:
+    db_path = ensure_repeatpeps_db(repeatpeps_db_dir, diamond_bin, logger)
 
-    if not rep.exists():
-        return False
+    with open(family_table_tsv) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            te_class = row["top_orf_class"]
+            if te_class not in {"LINE", "SINE", "LTR", "RC", "DNA"}:
+                continue
 
-    run_blastx_orientation(rep, db_dmnd, out, diamond_bin, threads, logger)
+            consname = row["name"]
+            family = row["family"]
+            group_dir = te_aid_dir / te_class
 
-    if not out.exists() or out.stat().st_size == 0:
-        return False
+            rep_fa = group_dir / f"{consname}_rep.fa"
+            msa_fa = group_dir / f"{consname}_MSA_extended.fa"
+            rep_mod_fa = group_dir / f"{consname}_rep_mod.fa"
+            blastx_out = group_dir / f"{consname}_extended_rep_blastx.out"
 
-    with open(out) as handle:
-        first = handle.readline().strip().split("\t")
-    if len(first) < 8:
-        return False
+            if not rep_fa.exists():
+                logger.warning("Missing rep file for orientation check: %s", rep_fa)
+                continue
 
-    start = int(first[6])
-    end = int(first[7])
+            clean_name = consname.replace("-rnd-", ".").replace("_family-", ".")
+            new_header = f"{clean_name}#{row['class']}/{family}"
 
-    if start <= end:
-        return False
+            if not rep_mod_fa.exists():
+                rewrite_repmod_header(
+                    input_fasta=rep_fa,
+                    output_fasta=rep_mod_fa,
+                    original_name=consname[:-1] if consname else consname,
+                    new_header=new_header,
+                )
 
-    logger.info("Reverse-complementing %s", short_id)
+            run_diamond_blastx(rep_fa, db_path, blastx_out, diamond_bin, threads, logger)
+            top = parse_top_hit_per_query(blastx_out)
 
-    tmp = rep.with_suffix(".tmp")
-    reverse_complement_fasta(rep, tmp)
-    tmp.replace(rep)
+            if not top:
+                logger.info("No blastx hit for %s; leaving orientation unchanged", consname)
+                continue
 
-    if msa.exists():
-        tmp = msa.with_suffix(".tmp")
-        reverse_complement_fasta(msa, tmp)
-        tmp.replace(msa)
+            hit = next(iter(top.values()))
+            if hit["qstart"] > hit["qend"]:
+                logger.info("Reverse-complementing %s", consname)
 
-    if rep_mod.exists():
-        tmp = rep_mod.with_suffix(".tmp")
-        reverse_complement_fasta(rep_mod, tmp)
-        tmp.replace(rep_mod)
+                reverse_complement_fasta(rep_fa, rep_fa.with_suffix(".tmp"))
+                rep_fa.with_suffix(".tmp").replace(rep_fa)
 
-    return True
+                if msa_fa.exists():
+                    reverse_complement_fasta(msa_fa, msa_fa.with_suffix(".tmp"))
+                    msa_fa.with_suffix(".tmp").replace(msa_fa)
+
+                if rep_mod_fa.exists():
+                    reverse_complement_fasta(rep_mod_fa, rep_mod_fa.with_suffix(".tmp"))
+                    rep_mod_fa.with_suffix(".tmp").replace(rep_mod_fa)
