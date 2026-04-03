@@ -72,7 +72,12 @@ def parse_blast_outfmt6(blast_file: str | Path) -> List[BlastHit]:
             )
     return hits
 
-
+def read_library_records(library_fasta: str | Path) -> Dict[str, SeqRecord]:
+    records = {}
+    for rec in SeqIO.parse(str(library_fasta), "fasta"):
+        records[rec.id] = rec
+    return records
+    
 def group_top_hits_by_query(
     hits: List[BlastHit],
     max_hits_per_query: int = 50,
@@ -95,6 +100,7 @@ def group_top_hits_by_query(
 def extract_hit_sequences(
     genome_fasta: str | Path,
     grouped_hits: Dict[str, List[BlastHit]],
+    library_records: Dict[str, SeqRecord],
     output_dir: str | Path,
     flank_left: int = 100,
     flank_right: int = 100,
@@ -109,6 +115,17 @@ def extract_hit_sequences(
         outfile = output_dir / f"{query}.fa"
         records: List[SeqRecord] = []
 
+        # prepend original consensus
+        if query in library_records:
+            consensus = library_records[query]
+            records.append(
+                SeqRecord(
+                    Seq(str(consensus.seq)),
+                    id=query,
+                    description="original_consensus",
+                )
+            )
+
         for idx, hit in enumerate(hits, start=1):
             chrom = hit.subject
             contig_len = len(genome[chrom])
@@ -116,12 +133,12 @@ def extract_hit_sequences(
             start = max(0, hit.start0 - flank_left)
             end = min(contig_len, hit.end0 + flank_right)
 
-            seq = genome[chrom][start:end]
+            seq = str(genome[chrom][start:end])
             if hit.strand == "-":
                 seq = str(Seq(seq).reverse_complement())
 
             record = SeqRecord(
-                seq=seq,
+                Seq(seq),
                 id=f"{query}_hit{idx}",
                 description=f"{chrom}:{start+1}-{end}({hit.strand}) bitscore={hit.bitscore}",
             )
@@ -131,7 +148,7 @@ def extract_hit_sequences(
             SeqIO.write(records, handle, "fasta")
 
         outfiles[query] = outfile
-        LOGGER.info("Wrote %d extracted hits for %s -> %s", len(records), query, outfile)
+        LOGGER.info("Wrote %d extracted hits for %s -> %s", len(records) - 1, query, outfile)
 
     return outfiles
 
@@ -149,14 +166,18 @@ def run_extract_align(
     cat_dir = output_dir / "catTEfiles"
     cat_dir.mkdir(parents=True, exist_ok=True)
 
-    library_ids = set(read_library_ids(library_fasta))
+    library_records = read_library_records(library_fasta)
+    library_ids = set(library_records.keys())
+
     hits = parse_blast_outfmt6(blast_file)
     hits = [h for h in hits if h.query in library_ids]
 
     grouped = group_top_hits_by_query(hits, max_hits_per_query=max_hits_per_query)
+
     return extract_hit_sequences(
         genome_fasta=genome_fasta,
         grouped_hits=grouped,
+        library_records=library_records,
         output_dir=cat_dir,
         flank_left=flank_left,
         flank_right=flank_right,
