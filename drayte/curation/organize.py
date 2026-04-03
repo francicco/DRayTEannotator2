@@ -1,69 +1,62 @@
 from __future__ import annotations
 
+import csv
 import shutil
 from pathlib import Path
-from typing import Dict
-
-from .metadata import FamilyMeta
 
 
-CLASS_MAP = {
-    "LINE": "LINE",
-    "SINE": "SINE",
-    "LTR": "LTR",
-    "RC": "RC",
-    "DNA": "DNA",
-    "Unknown": "NOHIT",
-}
+TELIST = ["LINE", "SINE", "LTR", "RC", "DNA", "NOHIT"]
 
 
-def short_id_to_mod_id(short_id: str, te_class: str, te_family: str) -> str:
-    consnamemod = short_id.replace("-rnd-", ".").replace("_family-", ".")
-    return f"{consnamemod}#{te_class}/{te_family}"
+def ensure_te_dirs(base_dir: Path) -> dict[str, Path]:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    dirs = {}
+    for te in TELIST:
+        d = base_dir / te
+        d.mkdir(parents=True, exist_ok=True)
+        dirs[te] = d
+    return dirs
 
 
-def organize_family_outputs(
-    metadata: Dict[str, FamilyMeta],
-    extension_workdir: str | Path,
-    aidout: str | Path,
+def classify_group(row: dict) -> str:
+    top_orf_class = row["top_orf_class"]
+    if top_orf_class in {"LINE", "SINE", "LTR", "RC", "DNA"}:
+        return top_orf_class
+    return "NOHIT"
+
+
+def copy_extension_artifacts(
+    family_table_tsv: Path,
+    extensionwork_dir: Path,
+    outdir: Path,
     logger,
-) -> Dict[str, str]:
-    extension_workdir = Path(extension_workdir)
-    aidout = Path(aidout)
-    for cat in ["LINE", "SINE", "LTR", "RC", "DNA", "NOHIT"]:
-        (aidout / cat).mkdir(parents=True, exist_ok=True)
+) -> dict[str, Path]:
+    te_dirs = ensure_te_dirs(outdir)
 
-    category_of: Dict[str, str] = {}
+    with open(family_table_tsv) as handle:
+        reader = csv.DictReader(handle, delimiter="\t")
+        for row in reader:
+            consname = row["name"]
+            cons_short = consname[:-1] if consname.endswith(("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")) else consname
+            group = classify_group(row)
 
-    for short_id, meta in metadata.items():
-        category = CLASS_MAP.get(meta.te_class, "NOHIT")
-        category_of[short_id] = category
+            src_dir = extensionwork_dir / cons_short
+            if not src_dir.exists():
+                logger.warning("Missing extension directory for %s: %s", consname, src_dir)
+                continue
 
-        src_dir = extension_workdir / short_id
-        dst_dir = aidout / category
+            mapping = {
+                f"{cons_short}_rep.fa": te_dirs[group] / f"{consname}_rep.fa",
+                f"{cons_short}_MSA_extended.fa": te_dirs[group] / f"{consname}_MSA_extended.fa",
+                f"{cons_short}.png": te_dirs[group] / f"{consname}.png",
+            }
 
-        rep = src_dir / f"{short_id}_rep.fa"
-        msa = src_dir / f"{short_id}_MSA_extended.fa"
-        png = src_dir / f"{short_id}.png"
+            for src_name, dst in mapping.items():
+                src = src_dir / src_name
+                if src.exists():
+                    if not dst.exists():
+                        shutil.copy2(src, dst)
+                else:
+                    logger.warning("Missing expected extension artifact: %s", src)
 
-        if rep.exists():
-            shutil.copy2(rep, dst_dir / f"{short_id}_rep.fa")
-        if msa.exists():
-            shutil.copy2(msa, dst_dir / f"{short_id}_MSA_extended.fa")
-        if png.exists():
-            shutil.copy2(png, dst_dir / f"{short_id}.png")
-
-        rep_mod = dst_dir / f"{short_id}_rep_mod.fa"
-        if (dst_dir / f"{short_id}_rep.fa").exists() and not rep_mod.exists():
-            new_header = short_id_to_mod_id(short_id, meta.te_class, meta.te_family)
-            with open(dst_dir / f"{short_id}_rep.fa") as fin, open(rep_mod, "w") as fout:
-                first = True
-                for line in fin:
-                    if first and line.startswith(">"):
-                        fout.write(f">{new_header}\n")
-                        first = False
-                    else:
-                        fout.write(line)
-
-    logger.info("Organized TE-Aid input files by class")
-    return category_of
+    return te_dirs
