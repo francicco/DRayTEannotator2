@@ -1,0 +1,11 @@
+genome: /path/to/genome.fa
+outdir: /path/to/results
+species: Hmel
+threads: 16
+preset: generic_insect
+
+tools:
+  step1_repmodannotation: /path/to/Step1.RepModAnnotation.py
+  step2_extendedalign: /path/to/Step2.ExtendedAlign.sh
+  step3_repeatclassifier: /path/to/Step3.RepeatClassifier.sh
+  step4_tecurate: /path/to/Step4.TEcurate.sh
