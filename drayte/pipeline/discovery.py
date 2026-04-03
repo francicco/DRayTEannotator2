@@ -1,5 +1,7 @@
+from pathlib import Path
+
 from drayte.utils.paths import stage_dir
-from drayte.utils.subprocess import run_command
+from drayte.step1_repmodannotation import run_step1
 
 
 def run(config, logger) -> dict:
@@ -10,20 +12,16 @@ def run(config, logger) -> dict:
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
-    cmd = [
-        "python",
-        config.tools.step1_repmodannotation,
-        "--genome", str(config.genome_path.resolve()),
-        "--outdir", str(outdir),
-        "--species", config.species,
-        "--threads", str(config.threads),
-        "--batches", str(config.extra.get("batches", 1)),
-        "--repeatmodeler-dir", config.extra["repeatmodeler_dir"],
-        "--repeatscout-dir", config.extra["repeatscout_dir"],
-        "--repeatmasker-bin", config.extra.get("repeatmasker_bin", "RepeatMasker"),
-    ]
-
-    run_command(cmd, logger, prefix="discovery")
+    run_step1(
+        genome=config.genome_path.resolve(),
+        outdir=outdir,
+        species=config.species,
+        threads=config.threads,
+        repeatmodeler_dir=Path(config.extra["repeatmodeler_dir"]),
+        repeatscout_dir=Path(config.extra["repeatscout_dir"]),
+        repeatmasker_bin=config.extra.get("repeatmasker_bin", "RepeatMasker"),
+        logger=logger,
+    )
 
     result = {
         "stage": "discovery",
