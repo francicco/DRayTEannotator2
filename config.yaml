@@ -4,17 +4,12 @@ species: Cant
 threads: 16
 preset: Collembola
 
-tools:
-  step1_repmodannotation: /user/work/tk19812/software/DRayTEannotator2/Step1.RepModAnnotation.py
-  step2_extendedalign: /user/work/tk19812/software/DRayTEannotator2/Step2.ExtendedAlign.sh
-  step4_tecurate: /user/work/tk19812/software/DRayTEannotator2/Step4.TEcurate.sh
-
-
 repeatmodeler_dir: /user/work/tk19812/software/RepeatModeler-2.0.4
 repeatscout_dir: /user/work/tk19812/software/RepeatScout
 repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker
 repeatmodeler_extend_script: /user/work/tk19812/software/RepeatModeler-2.0.4/util/davidExtendConsRAM.pl
 repeatclassifier_bin: RepeatClassifier
+
 repeatpeps_db_dir: /user/work/tk19812/AntSpringtail/CantTEannotation/curation/prioritize/db
 diamond_bin: diamond
 getorf_bin: getorf
