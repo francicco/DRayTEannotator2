@@ -1,2 +1,20 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drayte"
+version = "0.1.0"
+description = "DRayTE insect TE annotation pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pyyaml",
+  "biopython",
+]
+
 [project.scripts]
 drayte = "drayte.pipeline.runner:main"
+
+[tool.setuptools.packages.find]
+include = ["drayte*"]
