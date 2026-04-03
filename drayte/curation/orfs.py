@@ -1,25 +1,39 @@
-
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
+from typing import Dict, List, Tuple
+
+from Bio import SeqIO
 
 
-def run_orf_detection(input_fasta: Path, outdir: Path, getorf_bin: str, logger) -> dict:
+def run_getorf(input_fasta: str | Path, outdir: str | Path, getorf_bin: str, min_orf: int, logger) -> Path:
+    outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
+    out_fa = outdir / f"{Path(input_fasta).name}_getorf.fa"
 
-    orf_fasta = outdir / f"{input_fasta.stem}.orfs.fa"
+    if out_fa.exists() and out_fa.stat().st_size > 0:
+        logger.info("getorf output already exists: %s", out_fa)
+        return out_fa
 
-    if not orf_fasta.exists() or orf_fasta.stat().st_size == 0:
-        cmd = [
-            getorf_bin,
-            "-sequence", str(input_fasta),
-            "-outseq", str(orf_fasta),
-            "-minsize", "300",
-        ]
-        logger.info("Running getorf")
-        subprocess.run(cmd, check=True)
-    else:
-        logger.info("ORF output already exists: %s", orf_fasta)
+    cmd = [
+        getorf_bin,
+        str(input_fasta),
+        str(out_fa),
+        "-minsize",
+        str(min_orf),
+    ]
+    logger.info("Running getorf")
+    subprocess.run(cmd, check=True)
+    return out_fa
 
-    return {"orf_fasta": str(orf_fasta)}
+
+def collect_orf_lengths(getorf_fasta: str | Path) -> Dict[str, List[int]]:
+    result: Dict[str, List[int]] = {}
+    for record in SeqIO.parse(str(getorf_fasta), "fasta"):
+        parent = record.id.split("_")[0]
+        result.setdefault(parent, []).append(len(record.seq))
+    for k in result:
+        result[k] = sorted(result[k], reverse=True)
+    return result
