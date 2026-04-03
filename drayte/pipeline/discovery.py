@@ -5,7 +5,10 @@ from drayte.utils.subprocess import run_command
 def run(config, logger) -> dict:
     outdir = stage_dir(config.outdir_path, "discovery")
 
-    logger.info("Starting discovery stage")
+    logger.info("=" * 80)
+    logger.info("STAGE: discovery")
+    logger.info("Output directory: %s", outdir)
+    logger.info("=" * 80)
 
     cmd = [
         "python",
@@ -20,7 +23,7 @@ def run(config, logger) -> dict:
         "--repeatmasker-bin", config.extra.get("repeatmasker_bin", "RepeatMasker"),
     ]
 
-    run_command(cmd, logger)
+    run_command(cmd, logger, prefix="discovery")
 
     result = {
         "stage": "discovery",
