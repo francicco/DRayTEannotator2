@@ -118,7 +118,6 @@ def extract_hit_sequences(
 
             seq = genome[chrom][start:end]
             if hit.strand == "-":
-                from Bio.Seq import Seq
                 seq = str(Seq(seq).reverse_complement())
 
             record = SeqRecord(
