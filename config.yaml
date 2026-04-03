@@ -1,11 +1,21 @@
-genome: /path/to/genome.fa
-outdir: /path/to/results
-species: Hmel
+genome: /user/work/tk19812/AntSpringtail/Genomes/Cant.assembly.v1.0.fasta
+outdir: /user/work/tk19812/AntSpringtail/CantTEannotation
+species: Cant
 threads: 16
-preset: generic_insect
+preset: Collembola
 
 tools:
-  step1_repmodannotation: /path/to/Step1.RepModAnnotation.py
-  step2_extendedalign: /path/to/Step2.ExtendedAlign.sh
-  step3_repeatclassifier: /path/to/Step3.RepeatClassifier.sh
-  step4_tecurate: /path/to/Step4.TEcurate.sh
+  step1_repmodannotation: /user/work/tk19812/software/DRayTEannotator2/Step1.RepModAnnotation.py
+  step2_extendedalign: /user/work/tk19812/software/DRayTEannotator2/Step2.ExtendedAlign.sh
+  step3_repeatclassifier: /user/work/tk19812/software/DRayTEannotator2/Step3.RepeatClassifier.sh
+  step4_tecurate: /user/work/tk19812/software/DRayTEannotator2/Step4.TEcurate.sh
+
+
+repeatmodeler_dir: /user/work/tk19812/software/RepeatModeler-2.0.4
+repeatscout_dir: /user/work/tk19812/software/RepeatScout
+repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker
+repeatmodeler_extend_script: /user/work/tk19812/software/RepeatModeler-2.0.4/util/davidExtendConsRAM.pl
+
+extension_max_hits: 50
+extension_left_buffer: 100
+extension_right_buffer: 100
