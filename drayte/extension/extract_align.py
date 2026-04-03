@@ -115,17 +115,7 @@ def extract_hit_sequences(
         outfile = output_dir / f"{query}.fa"
         records: List[SeqRecord] = []
 
-        # prepend original consensus
-        if query in library_records:
-            consensus = library_records[query]
-            records.append(
-                SeqRecord(
-                    Seq(str(consensus.seq)),
-                    id=query,
-                    description="original_consensus",
-                )
-            )
-
+        # genomic hits first
         for idx, hit in enumerate(hits, start=1):
             chrom = hit.subject
             contig_len = len(genome[chrom])
@@ -139,16 +129,27 @@ def extract_hit_sequences(
 
             record = SeqRecord(
                 Seq(seq),
-                id=f"{query}_hit{idx}",
-                description=f"{chrom}:{start+1}-{end}({hit.strand}) bitscore={hit.bitscore}",
+                id=f"{chrom}:{start+1}-{end}({hit.strand})",
+                description="",
             )
             records.append(record)
+
+        # consensus last, with the expected header
+        consensus = library_records.get(query)
+        if consensus is not None:
+            records.append(
+                SeqRecord(
+                    Seq(str(consensus.seq)),
+                    id=f"CONSENSUS-{query}",
+                    description="",
+                )
+            )
 
         with open(outfile, "w") as handle:
             SeqIO.write(records, handle, "fasta")
 
         outfiles[query] = outfile
-        LOGGER.info("Wrote %d extracted hits for %s -> %s", len(records) - 1, query, outfile)
+        LOGGER.info("Wrote %d extracted hits for %s -> %s", len(hits), query, outfile)
 
     return outfiles
 
