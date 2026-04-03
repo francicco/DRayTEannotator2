@@ -1,13 +1,9 @@
-from .inputs import prepare_curation_inputs
-from .orfs import run_orf_detection
-from .homology import run_repeatpep_search
-from .tables import build_family_table
-from .selection import select_representatives
+from .family_table import build_family_table_from_classified_library
+from .organize import copy_extension_artifacts
+from .orientation import orient_group_files
 
 __all__ = [
-    "prepare_curation_inputs",
-    "run_orf_detection",
-    "run_repeatpep_search",
-    "build_family_table",
-    "select_representatives",
+    "build_family_table_from_classified_library",
+    "copy_extension_artifacts",
+    "orient_group_files",
 ]
