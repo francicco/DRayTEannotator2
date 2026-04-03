@@ -284,7 +284,8 @@ def main() -> None:
     LOGGER.info("Species: %s", args.species)
     LOGGER.info("Threads: %d", args.threads)
     LOGGER.info("Output directory: %s", outdir)
-
+    LOGGER.info("Step 1/4: preparing genome FASTA")
+    
     genome_fa = prepare_genome(genome_path, assemblies_dir, args.species)
     db_prefix = assemblies_dir / args.species
     rm_log = rmodeler_dir / f"{args.species}.RMrun.out"
@@ -303,6 +304,7 @@ def main() -> None:
     consensi = find_repeatmodeler_library(rmodeler_dir)
 
     if consensi is None:
+        LOGGER.info("Step 3/4: checking/running RepeatModeler")
         LOGGER.info("No existing RepeatModeler library found; running RepeatModeler")
         with open(rm_log, "w") as log_handle:
             result = subprocess.run(
@@ -357,6 +359,7 @@ def main() -> None:
         normalize_family_headers(copied_consensi, edited_fasta, args.species)
 
     # First-pass RepeatMasker
+    LOGGER.info("Step 4/4: checking/running RepeatMasker")
     if repeatmasker_outputs_exist(assemblies_dir, rmasker_dir, args.species):
         LOGGER.info("RepeatMasker outputs already exist; skipping RepeatMasker")
     else:
