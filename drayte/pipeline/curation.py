@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from drayte.utils.paths import stage_dir, ensure_dir
-from drayte.curation.inputs import prepare_curation_inputs
-from drayte.curation.orfs import run_orf_detection
-from drayte.curation.homology import run_repeatpep_search
-from drayte.curation.tables import build_family_table
-from drayte.curation.selection import select_representatives
+from drayte.curation import (
+    build_family_table_from_classified_library,
+    copy_extension_artifacts,
+    orient_group_files,
+)
 
 
 def run(config, reclassify_result: dict, logger) -> dict:
@@ -18,41 +18,37 @@ def run(config, reclassify_result: dict, logger) -> dict:
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
-    prepared = prepare_curation_inputs(
-        classified_library=Path(reclassify_result["classified_library"]),
-        outdir=outdir,
-        species=config.species,
-        logger=logger,
-    )
+    classified_library = Path(reclassify_result["classified_library"])
+    extension_dir = config.outdir_path / "extension"
+    extensionwork_dir = extension_dir / "extensionwork"
 
-    orf_result = run_orf_detection(
-        input_fasta=prepared["clean_library"],
-        outdir=outdir / "orfs",
+    prioritize_dir = ensure_dir(outdir / "prioritize")
+    te_aid_dir = ensure_dir(outdir / "te-aid")
+
+    family_table = build_family_table_from_classified_library(
+        classified_library=classified_library,
+        outdir=prioritize_dir,
         getorf_bin=config.extra.get("getorf_bin", "getorf"),
-        logger=logger,
-    )
-
-    homology_result = run_repeatpep_search(
-        input_fasta=prepared["clean_library"],
-        outdir=outdir / "homology",
         diamond_bin=config.extra.get("diamond_bin", "diamond"),
-        repeatpeps_db=config.extra.get("repeatpeps_db"),
+        repeatpeps_db_dir=Path(config.extra["repeatpeps_db_dir"]),
+        min_orf=int(config.extra.get("min_orf", 500)),
         threads=config.threads,
         logger=logger,
     )
 
-    family_table = build_family_table(
-        library_fasta=prepared["clean_library"],
-        orf_result=orf_result,
-        homology_result=homology_result,
-        outdir=outdir / "tables",
+    copy_extension_artifacts(
+        family_table_tsv=family_table,
+        extensionwork_dir=extensionwork_dir,
+        outdir=te_aid_dir,
         logger=logger,
     )
 
-    selected = select_representatives(
+    orient_group_files(
         family_table_tsv=family_table,
-        library_fasta=prepared["clean_library"],
-        outdir=outdir / "selected",
+        te_aid_dir=te_aid_dir,
+        diamond_bin=config.extra.get("diamond_bin", "diamond"),
+        repeatpeps_db_dir=Path(config.extra["repeatpeps_db_dir"]),
+        threads=config.threads,
         logger=logger,
     )
 
@@ -60,8 +56,7 @@ def run(config, reclassify_result: dict, logger) -> dict:
         "stage": "curation",
         "outdir": str(outdir),
         "family_table": str(family_table),
-        "curated_library": str(selected["curated_library"]),
-        "selected_table": str(selected["selected_table"]),
+        "te_aid_dir": str(te_aid_dir),
     }
 
     logger.info("Curation stage completed")
