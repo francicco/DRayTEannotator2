@@ -1,0 +1,2 @@
+[project.scripts]
+drayte = "drayte.pipeline.runner:main"
