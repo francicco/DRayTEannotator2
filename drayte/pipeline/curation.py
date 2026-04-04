@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from shutil import copy2
 
 from drayte.utils.paths import stage_dir, ensure_dir
 from drayte.curation import (
@@ -51,11 +52,16 @@ def run(config, reclassify_result: dict, logger) -> dict:
         logger=logger,
     )
 
+    final_curated = outdir / "Final.RepeatModeler.Lib.fa"
+    if not final_curated.exists():
+        copy2(classified_library, final_curated)
+
     result = {
         "stage": "curation",
         "outdir": str(outdir),
         "family_table": str(family_table),
         "te_aid_dir": str(te_aid_dir),
+        "curated_library": str(final_curated),
     }
 
     logger.info("Curation stage completed")
