@@ -28,7 +28,6 @@ def run(config, reclassify_result: dict, logger) -> dict:
     family_table = build_family_table_from_classified_library(
         classified_library=classified_library,
         outdir=prioritize_dir,
-        getorf_bin=config.extra.get("getorf_bin", "getorf"),
         diamond_bin=config.extra.get("diamond_bin", "diamond"),
         repeatpeps_db_dir=Path(config.extra["repeatpeps_db_dir"]),
         min_orf=int(config.extra.get("min_orf", 500)),
