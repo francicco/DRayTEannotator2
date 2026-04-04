@@ -10,7 +10,7 @@ def run(config, curation_result: dict, logger) -> dict:
     result = {
         "stage": "report",
         "outdir": str(outdir),
-        "curated_library": curation_result["curated_library"],
+        "curated_library": curation_result.get("curated_library", ""),
     }
 
     logger.info("Report stage completed")
