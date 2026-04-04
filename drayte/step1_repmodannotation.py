@@ -249,13 +249,19 @@ def normalize_family_headers(
     logger.info("Normalizing RepeatModeler family headers: %s -> %s", original_fasta, edited_fasta)
 
     with open(original_fasta) as infile, open(edited_fasta, "w") as outfile:
-        for record in SeqIO.parse(infile, "fasta"):
-            header = record.id.split()[0]
-            header = header.replace("#", "__")
-            header = header.replace("/", "___")
-            header = header.replace("rnd-", f"{species}-rnd-")
-            record.id = header
-            record.description = header
+        for i, record in enumerate(SeqIO.parse(infile, "fasta"), start=1):
+            raw_id = record.id.split()[0]
+
+            if "#" in raw_id:
+                name, cls = raw_id.split("#", 1)
+                name = name.replace("rnd-", f"{species}-rnd-")
+                new_id = f"{name}#{cls}"
+            else:
+                name = raw_id.replace("rnd-", f"{species}-rnd-")
+                new_id = name
+
+            record.id = new_id
+            record.description = new_id
             SeqIO.write(record, outfile, "fasta")
 
 
