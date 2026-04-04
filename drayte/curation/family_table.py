@@ -1,21 +1,16 @@
 from __future__ import annotations
 
 import csv
-import re
-import subprocess
 from pathlib import Path
 from typing import Dict, List
 
 from Bio import SeqIO
 
+from .orf_compat import write_orfs_fasta
 from .repeatpeps import ensure_repeatpeps_db, run_diamond_blastp, parse_top_hit_per_query
 
 
-def normalize_rc_header(header: str) -> tuple[str, str, str]:
-    """
-    Convert RepeatClassifier-style header into:
-    original_header, name, class, family
-    """
+def normalize_rc_header(header: str) -> tuple[str, str, str, str]:
     original = header.strip()
 
     if "#" in original:
@@ -43,42 +38,14 @@ def normalize_rc_header(header: str) -> tuple[str, str, str]:
     return original, name, te_class, family
 
 
-def run_getorf(
-    input_fasta: Path,
-    output_fasta: Path,
-    getorf_bin: str,
-    min_orf: int,
-    logger,
-) -> Path:
-    if output_fasta.exists() and output_fasta.stat().st_size > 0:
-        logger.info("getorf output already exists: %s", output_fasta)
-        return output_fasta
-
-    logger.info("Running getorf on %s", input_fasta.name)
-    subprocess.run(
-        [
-            getorf_bin,
-            "-sequence", str(input_fasta),
-            "-outseq", str(output_fasta),
-            "-minsize", str(min_orf),
-        ],
-        check=True,
-    )
-    return output_fasta
-
-
 def summarize_orf_hits_by_family(
     blastp_tsv: Path,
 ) -> Dict[str, dict]:
-    """
-    Group ORF blastp hits back to consensus family using the ORF header prefix.
-    Assumes getorf-derived IDs begin with the original sequence name.
-    """
     best_orf_hits = parse_top_hit_per_query(blastp_tsv)
     by_family: Dict[str, List[dict]] = {}
 
     for qid, hit in best_orf_hits.items():
-        family = qid.split("_", 1)[0]
+        family = qid.split("_orf", 1)[0]
         by_family.setdefault(family, []).append(hit)
 
     summary: Dict[str, dict] = {}
@@ -86,6 +53,7 @@ def summarize_orf_hits_by_family(
         hits = sorted(hits, key=lambda x: (x["bitscore"], x["length"]), reverse=True)
         top = hits[0]
         subject = top["sseqid"].replace("--", "#")
+
         if "#" in subject:
             _, rest = subject.split("#", 1)
         else:
@@ -111,7 +79,6 @@ def summarize_orf_hits_by_family(
 def build_family_table_from_classified_library(
     classified_library: Path,
     outdir: Path,
-    getorf_bin: str,
     diamond_bin: str,
     repeatpeps_db_dir: Path,
     min_orf: int,
@@ -120,8 +87,18 @@ def build_family_table_from_classified_library(
 ) -> Path:
     outdir.mkdir(parents=True, exist_ok=True)
 
-    orf_fasta = outdir / f"{classified_library.name}_getorf.fa"
-    run_getorf(classified_library, orf_fasta, getorf_bin, min_orf, logger)
+    orf_fasta = outdir / f"{classified_library.name}_orfs.fa"
+    if not orf_fasta.exists() or orf_fasta.stat().st_size == 0:
+        logger.info("Finding ORFs with internal getorf-compatible caller")
+        n_orfs = write_orfs_fasta(
+            input_fasta=classified_library,
+            output_fasta=orf_fasta,
+            minsize_nt=min_orf,
+            include_reverse=True,
+        )
+        logger.info("Wrote %d ORFs to %s", n_orfs, orf_fasta)
+    else:
+        logger.info("ORF FASTA already exists: %s", orf_fasta)
 
     repeatpeps_db = ensure_repeatpeps_db(repeatpeps_db_dir, diamond_bin, logger)
     blastp_tsv = outdir / f"{classified_library.name}_rep_blastp.out"
