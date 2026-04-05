@@ -33,7 +33,7 @@ def main() -> None:
     discovery_result = discovery.run(config, logger)
     write_manifest(config.outdir_path / "discovery", "discovery", discovery_result)
 
-    extension_result = extension.run(config, discovery_result, logger)
+    extension_result = extension.run(config, discovery_result, None, logger)
     write_manifest(config.outdir_path / "extension", "extension", extension_result)
 
     reclassify_result = reclassify.run(config, extension_result, logger)
