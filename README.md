@@ -90,12 +90,13 @@ pip install -e .
 
 Clone the repository:
 
-git clone https://github.com/francicco/DRayTEannotator2.git
+```git clone https://github.com/francicco/DRayTEannotator2.git
 cd DRayTEannotator2
+```
 
 Install the package:
 
-pip install -e .
+`pip install -e .`
 
 This will make the drayte command available.
 
@@ -188,11 +189,11 @@ Header format
 
 RepeatMasker-compatible FASTA headers must preserve the canonical format:
 
->family_id#CLASS/FAMILY
+`>family_id#CLASS/FAMILY`
 
 Avoid non-standard formats such as:
 
->family__CLASS___FAMILY#CLASS/FAMILY
+`>family__CLASS___FAMILY#CLASS/FAMILY`
 
 These can break downstream classification and summary parsing.
 
