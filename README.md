@@ -124,15 +124,11 @@ Adjust all paths to your local installation.
 
 ⸻
 
-Running the Pipeline
+## Running the Pipeline
 
 Run with:
 
-drayte --config config.yaml
-
-Example:
-
-drayte --config Kklo.config.yaml
+`drayte --config config.yaml`
 
 ⸻
 
