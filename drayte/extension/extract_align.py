@@ -115,7 +115,7 @@ def extract_hit_sequences(
     outfiles: Dict[str, Path] = {}
 
     for query, hits in grouped_hits.items():
-        outfile = output_dir / f"{safe_filename(family)}.fa"
+        outfile = output_dir / f"{safe_filename(query)}.fa"
         outfile.parent.mkdir(parents=True, exist_ok=True)
         records: List[SeqRecord] = []
 
