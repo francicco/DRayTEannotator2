@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import csv
 import logging
 from Bio.Seq import Seq
@@ -42,6 +43,8 @@ class BlastHit:
     def end0(self) -> int:
         return max(self.sstart, self.send)
 
+def safe_filename(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.#=-]+", "_", name)
 
 def read_library_ids(library_fasta: str | Path) -> List[str]:
     return [rec.id for rec in SeqIO.parse(str(library_fasta), "fasta")]
@@ -112,7 +115,8 @@ def extract_hit_sequences(
     outfiles: Dict[str, Path] = {}
 
     for query, hits in grouped_hits.items():
-        outfile = output_dir / f"{query}.fa"
+        outfile = output_dir / f"{safe_filename(family)}.fa"
+        outfile.parent.mkdir(parents=True, exist_ok=True)
         records: List[SeqRecord] = []
 
         # genomic hits first
