@@ -27,14 +27,18 @@ read_repeatmasker_out <- function(path) {
 
   df <- read.table(
     text = x,
+    header = FALSE,
     fill = TRUE,
     stringsAsFactors = FALSE,
     quote = "",
-    comment.char = ""
+    comment.char = "",
+    row.names = NULL,
+    check.names = FALSE
   )
 
-  if (ncol(df) < 14) {
-    stop("RepeatMasker .out file does not look like standard RepeatMasker output")
+  if (ncol(df) >= 15 && all(grepl("^[0-9]+$", df[[1]]))) {
+    df <- df[, -1]
+
   }
 
   colnames(df)[1:14] <- c(
