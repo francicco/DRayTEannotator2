@@ -1,6 +1,6 @@
-genome: /user/work/tk19812/AntSpringtail/Genomes/Cant0000001.assembly.v1.0.fasta
-outdir: /user/work/tk19812/AntSpringtail/CantScf01TEannotation
-species: CantScf01
+genome: /user/work/tk19812/HeliconiniiProject/CompleteAssemblies/AssembledGenomes/Hmel.Hmel202001o.fasta
+outdir: /user/work/tk19812/HeliconiniiProject/CompleteAssemblies/AssembledGenomes/sHmel202001oTEannotation
+species: Hmel
 threads: 16
 preset: Collembola
 

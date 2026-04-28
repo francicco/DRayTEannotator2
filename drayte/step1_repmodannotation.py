@@ -264,7 +264,6 @@ def normalize_family_headers(
             record.description = new_id
             SeqIO.write(record, outfile, "fasta")
 
-
 def repeatmasker_outputs_exist(assemblies_dir: Path, rmasker_dir: Path, species: str) -> bool:
     candidates = [
         assemblies_dir / f"{species}.fa.tbl",

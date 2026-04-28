@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 
 from drayte.pipeline.config import load_config
-from drayte.pipeline import discovery, extension, reclassify, curation, report
+from drayte.pipeline import discovery, extension, reclassify, curation, final_annotation, report
 from drayte.utils.logging import setup_logger
 from drayte.utils.paths import ensure_dir
-
+from drayte.reporting.SummaryFilesGen import run_summary_files
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DRayTE pipeline runner")
@@ -33,7 +33,7 @@ def main() -> None:
     discovery_result = discovery.run(config, logger)
     write_manifest(config.outdir_path / "discovery", "discovery", discovery_result)
 
-    extension_result = extension.run(config, discovery_result, None, logger)
+    extension_result = extension.run(config, discovery_result, logger)
     write_manifest(config.outdir_path / "extension", "extension", extension_result)
 
     reclassify_result = reclassify.run(config, extension_result, logger)
@@ -42,11 +42,20 @@ def main() -> None:
     curation_result = curation.run(config, reclassify_result, logger)
     write_manifest(config.outdir_path / "curation", "curation", curation_result)
 
+    final_annotation_result = final_annotation.run(config, curation_result, logger)
+    write_manifest(config.outdir_path / "final_annotation", "final_annotation", final_annotation_result)
+
+    summary_result = run_summary_files(
+        config=config,
+        final_annotation_result=final_annotation_result,
+        logger=logger,
+    )
+    write_manifest(config.outdir_path / "summaryFiles", "summaryFiles", summary_result)
+
     report_result = report.run(config, curation_result, logger)
     write_manifest(config.outdir_path / "report", "report", report_result)
 
     logger.info("Pipeline completed successfully")
-
 
 if __name__ == "__main__":
     main()

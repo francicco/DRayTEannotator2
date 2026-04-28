@@ -75,7 +75,7 @@ def orient_group_files(
                 rewrite_repmod_header(
                     input_fasta=rep_fa,
                     output_fasta=rep_mod_fa,
-                    original_name=consname[:-1] if consname else consname,
+                    original_name=consname,
                     new_header=new_header,
                 )
 

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from shutil import copy2
+
+from Bio import SeqIO
 
 from drayte.utils.paths import stage_dir, ensure_dir
 from drayte.curation import (
@@ -9,6 +10,18 @@ from drayte.curation import (
     copy_extension_artifacts,
     orient_group_files,
 )
+from drayte.curation.finalize import normalize_record_header_for_repeatmasker
+
+
+def write_final_curated_library(classified_library: Path, final_curated: Path, logger) -> None:
+    logger.info("Writing final curated library: %s", final_curated)
+
+    with open(final_curated, "w") as handle:
+        records = (
+            normalize_record_header_for_repeatmasker(rec)
+            for rec in SeqIO.parse(str(classified_library), "fasta")
+        )
+        SeqIO.write(records, handle, "fasta")
 
 
 def run(config, reclassify_result: dict, logger) -> dict:
@@ -53,8 +66,7 @@ def run(config, reclassify_result: dict, logger) -> dict:
     )
 
     final_curated = outdir / "Final.RepeatModeler.Lib.fa"
-    if not final_curated.exists():
-        copy2(classified_library, final_curated)
+    write_final_curated_library(classified_library, final_curated, logger)
 
     result = {
         "stage": "curation",
@@ -62,6 +74,7 @@ def run(config, reclassify_result: dict, logger) -> dict:
         "family_table": str(family_table),
         "te_aid_dir": str(te_aid_dir),
         "curated_library": str(final_curated),
+        "final_library": str(final_curated),
     }
 
     logger.info("Curation stage completed")

@@ -102,9 +102,15 @@ def build_family_table_from_classified_library(
 
     repeatpeps_db = ensure_repeatpeps_db(repeatpeps_db_dir, diamond_bin, logger)
     blastp_tsv = outdir / f"{classified_library.name}_rep_blastp.out"
-    run_diamond_blastp(orf_fasta, repeatpeps_db, blastp_tsv, diamond_bin, threads, logger)
-
-    orf_summary = summarize_orf_hits_by_family(blastp_tsv)
+    #run_diamond_blastp(orf_fasta, repeatpeps_db, blastp_tsv, diamond_bin, threads, logger)
+    #orf_summary = summarize_orf_hits_by_family(blastp_tsv)
+    if not orf_fasta.exists() or orf_fasta.stat().st_size == 0:
+        logger.warning("No ORFs found in %s; skipping DIAMOND RepeatPeps search", classified_library)
+        blastp_tsv.write_text("")
+        orf_summary = {}
+    else:
+        run_diamond_blastp(orf_fasta, repeatpeps_db, blastp_tsv, diamond_bin, threads, logger)
+        orf_summary = summarize_orf_hits_by_family(blastp_tsv)
 
     rows = []
     for rec in SeqIO.parse(str(classified_library), "fasta"):

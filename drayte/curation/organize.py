@@ -4,6 +4,7 @@ import csv
 import shutil
 from pathlib import Path
 
+from drayte.extension.extract_align import safe_filename
 
 TELIST = ["LINE", "SINE", "LTR", "RC", "DNA", "NOHIT"]
 
@@ -37,10 +38,10 @@ def copy_extension_artifacts(
         reader = csv.DictReader(handle, delimiter="\t")
         for row in reader:
             consname = row["name"]
-            cons_short = consname[:-1] if consname.endswith(("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")) else consname
+            cons_short = consname
             group = classify_group(row)
 
-            src_dir = extensionwork_dir / cons_short
+            src_dir = extensionwork_dir / safe_filename(cons_short)
             if not src_dir.exists():
                 logger.warning("Missing extension directory for %s: %s", consname, src_dir)
                 continue

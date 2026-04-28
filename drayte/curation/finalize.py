@@ -26,6 +26,21 @@ class FamilyDecision:
     decision: str
     reason: str
 
+def normalize_repeatmasker_classification(classification: str) -> str:
+    classification = classification.strip()
+
+    # Penelope must be its own top-level class for proper RepeatMasker summary
+    if classification.startswith("LINE/Penelope"):
+        return "LINE/Penelope"
+
+    # Helitrons should be reported as rolling-circle elements
+    if classification in {"DNA/Helitron", "Helitron"}:
+        return "RC/Helitron"
+
+    if classification.startswith("RC/Helitron"):
+        return "RC/Helitron"
+
+    return classification
 
 def load_family_table(family_table_tsv: Path) -> List[dict]:
     with open(family_table_tsv) as handle:
@@ -137,6 +152,18 @@ def load_fasta_as_dict(fasta: Path) -> Dict[str, SeqRecord]:
     return {rec.id: rec for rec in SeqIO.parse(str(fasta), "fasta")}
 
 
+def normalize_record_header_for_repeatmasker(rec: SeqRecord) -> SeqRecord:
+    rec = rec[:]
+
+    if "#" in rec.id:
+        name, classification = rec.id.split("#", 1)
+        classification = normalize_repeatmasker_classification(classification)
+        rec.id = f"{name}#{classification}"
+        rec.name = rec.id
+        rec.description = rec.id
+
+    return rec
+
 def write_curated_full_library(
     classified_library: Path,
     decisions: List[FamilyDecision],
@@ -145,13 +172,16 @@ def write_curated_full_library(
     records = load_fasta_as_dict(classified_library)
     keep_ids = {d.family_id for d in decisions if d.decision in {"keep", "review"}}
 
-    selected = [records[k] for k in keep_ids if k in records]
+    selected = [
+        normalize_record_header_for_repeatmasker(records[k])
+        for k in keep_ids
+        if k in records
+    ]
 
     with open(outfile, "w") as handle:
         SeqIO.write(selected, handle, "fasta")
 
     return len(selected)
-
 
 def write_metadata(decisions: List[FamilyDecision], outfile: Path) -> None:
     with open(outfile, "w", newline="") as handle:
