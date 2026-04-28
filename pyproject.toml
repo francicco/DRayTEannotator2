@@ -13,6 +13,14 @@ dependencies = [
   "biopython",
 ]
 
+dependencies = [
+ "pyyaml",
+ "biopython",
+ "pandas",
+ "matplotlib",
+ "tabulate",
+]
+
 [project.scripts]
 drayte = "drayte.pipeline.runner:main"
 TE-summary = "drayte.reporting.summary_cli:main"
