@@ -16,7 +16,7 @@ The final curated TE library can then be used for genome-wide annotation with Re
 
 * RepeatModeler-based de novo TE discovery
 * RepeatMasker-based first-pass annotation
-* Consensus extension using davidExtendConsRAM.pl
+* Consensus extension using `davidExtendConsRAM.pl`
 * RepeatClassifier reclassification
 * TE-Aid assisted curation support
 * Final curated TE library generation
@@ -55,7 +55,7 @@ Required external scripts
 
 The pipeline currently uses:
 
-* davidExtendConsRAM.pl
+* `davidExtendConsRAM.pl` (included)
 * RAMExtend
 * associated RepeatModeler extension scripts
 
@@ -65,8 +65,8 @@ Recommended
 
 * GNU Parallel
 * Slurm (for cluster execution)
-* twoBitInfo from KentUtils
-* faToTwoBit from KentUtils
+* `twoBitInfo` from KentUtils
+* `faToTwoBit` from KentUtils
 
 ⸻
 
@@ -74,15 +74,19 @@ Recommended
 
 Create a dedicated environment:
 
+```
 python -m venv DRayTEannotator2
 source DRayTEannotator2/bin/activate
 pip install -e .
+```
 
 If using Conda or Micromamba:
 
+```
 micromamba create -n DRayTEannotator2 python=3.10
 micromamba activate DRayTEannotator2
 pip install -e .
+```
 
 ⸻
 
@@ -90,7 +94,8 @@ pip install -e .
 
 Clone the repository:
 
-```git clone https://github.com/francicco/DRayTEannotator2.git
+```
+git clone https://github.com/francicco/DRayTEannotator2.git
 cd DRayTEannotator2
 ```
 
@@ -108,7 +113,8 @@ The pipeline runs using a YAML configuration file.
 
 Example:
 
-species: Cant
+```
+species: SpeciesTag
 threads: 16
 input_genome: /path/to/genome.fasta
 output_dir: /path/to/output
@@ -119,6 +125,7 @@ repeatscout_dir: /path/to/RepeatScout
 repeatmodeler_extend_script: /path/to/davidExtendConsRAM.pl
 te_aid_dir: /path/to/TE-Aid
 blast_bin: /path/to/blast+
+```
 
 Adjust all paths to your local installation.
 
@@ -136,7 +143,8 @@ Output Structure
 
 Typical output layout:
 
-```output/
+```
+output/
 ├── discovery/
 │   ├── assemblies_dir/
 │   ├── rmodeler_dir/
@@ -159,7 +167,7 @@ Typical output layout:
 
 ## Important final output:
 
-curation/Final.RepeatModeler.Lib.fa
+`curation/Final.RepeatModeler.Lib.fa`
 
 This is the curated TE library for downstream RepeatMasker annotation.
 
@@ -197,7 +205,7 @@ These can break downstream classification and summary parsing.
 
 ## EarlGrey integration
 
-EarlGrey can be run in parallel as an independent validation workflow, particularly useful for:
+EarlGrey can be run as a second line of evidence, as an independent validation workflow, particularly useful for:
 
 * Helitron detection
 * TIR detection
