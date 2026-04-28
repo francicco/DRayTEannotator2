@@ -11,14 +11,9 @@ requires-python = ">=3.10"
 dependencies = [
   "pyyaml",
   "biopython",
-]
-
-dependencies = [
- "pyyaml",
- "biopython",
- "pandas",
- "matplotlib",
- "tabulate",
+  "pandas",
+  "matplotlib",
+  "tabulate",
 ]
 
 [project.scripts]
