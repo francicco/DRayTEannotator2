@@ -9,7 +9,7 @@ from Bio import SeqIO
 from .orf_compat import write_orfs_fasta
 from .repeatpeps import ensure_repeatpeps_db, run_diamond_blastp, parse_top_hit_per_query
 
-
+ 
 def normalize_rc_header(header: str) -> tuple[str, str, str, str]:
     original = header.strip()
 
