@@ -228,10 +228,10 @@ def run(config, discovery_result: dict, logger) -> dict:
 
     for te_id, cat_file in extracted.items():
         safe_te_id = safe_filename(te_id)
-
-        rep_file = final_consensuses / f"{te_id}_rep.fa"
-        te_workdir = extensionwork / te_id
-        te_log = extendlogs / f"{te_id}.extend.log"
+        
+        rep_file = final_consensuses / f"{safe_te_id}_rep.fa"
+        te_workdir = extensionwork / safe_te_id
+        te_log = extendlogs / f"{safe_te_id}.extend.log"
 
         rep_fa = None
         msa_fa = None
