@@ -1,0 +1,26 @@
+genome: /user/work/tk19812/AntSpringtail/Genomes/Kklo.assembly.v1.0.fasta
+outdir: /user/work/tk19812/AntSpringtail/KkloTEannotation
+species: Cant
+threads: 16
+preset: Collembola
+
+repeatmodeler_dir: /user/work/tk19812/software/RepeatModeler-2.0.4
+repeatscout_dir: /user/work/tk19812/software/RepeatScout
+repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker
+repeatmodeler_extend_script: /user/work/tk19812/software/RepeatModeler-2.0.4/util/davidExtendConsRAM.pl
+repeatclassifier_bin: RepeatClassifier
+
+repeatpeps_db_dir: /user/work/tk19812/software/RepeatMasker/Libraries/
+diamond_bin: diamond
+getorf_bin: getorf
+cdhit_est_bin: cd-hit-est
+
+cdhit_identity: 0.95
+extension_max_hits: 50
+extension_left_buffer: 100
+extension_right_buffer: 100
+min_orf: 500
+
+structure:
+  heliano:
+    enabled: false

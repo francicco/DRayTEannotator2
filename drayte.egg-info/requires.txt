@@ -1,0 +1,7 @@
+pyyaml
+biopython
+pandas
+matplotlib
+pybedtools
+pyfaidx
+tabulate
