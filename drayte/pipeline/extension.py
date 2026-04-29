@@ -49,13 +49,8 @@ def merge_candidate_libraries(
     merged_fasta: Path,
     logger,
 ) -> Path:
-    if (
-        merged_fasta.exists()
-        and merged_fasta.stat().st_size > 0
-        and secondary_fasta
-        and secondary_fasta.exists()
-        and secondary_fasta.stat().st_size > 0
-    ):
+
+    if merged_fasta.exists() and merged_fasta.stat().st_size > 0:
         logger.info("Merged candidate library already exists: %s", merged_fasta)
         return merged_fasta
 
@@ -171,21 +166,6 @@ def run(config, discovery_result: dict, logger) -> dict:
 
     raw_consensus = Path(discovery_result["raw_library"])
     candidate_library = raw_consensus
-
-    #raw_consensus = Path(discovery_result["raw_library"])
-    #structure_library = None
-    #if structure_result:
-    #    structure_library = Path(structure_result.get("structure_library", ""))
-
-    #candidate_library = raw_consensus
-    #if structure_library and structure_library.exists() and structure_library.stat().st_size > 0:
-    #    merged_candidates = rmodeler_dir / f"{taxon}-families.plus_structure.fa"
-    #    candidate_library = merge_candidate_libraries(
-    #        primary_fasta=raw_consensus,
-    #        secondary_fasta=structure_library,
-    #        merged_fasta=merged_candidates,
-    #        logger=logger,
-    #    )
 
     filtered_fasta = rmodeler_dir / f"{taxon}-families.filtered.fa"
     final_query_fasta = rmodeler_dir / f"{taxon}-families.mod.fa"
