@@ -1,3 +1,0 @@
-[console_scripts]
-TE-summary = drayte.reporting.summary_cli:main
-drayte = drayte.pipeline.runner:main
