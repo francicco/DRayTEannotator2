@@ -13,10 +13,8 @@ dependencies = [
   "biopython",
   "pandas",
   "matplotlib",
-<<<<<<< HEAD
-=======
-  "pybedtools"
->>>>>>> 511669a (Heliano added)
+  "pybedtools",
+  "pyfaidx",
   "tabulate",
 ]
 
