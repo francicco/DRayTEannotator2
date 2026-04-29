@@ -44,7 +44,22 @@ def run(config, curation_result: dict, logger) -> dict:
 
     taxon = config.species
     genome_fa = config.outdir_path / "discovery" / "assemblies_dir" / f"{taxon}.fa"
+
     final_library = Path(curation_result["final_library"])
+    
+    heliano_library = curation_result.get("heliano_library")
+    
+    if heliano_library:
+        merged_library = outdir / f"{taxon}.final_plus_heliano.fa"
+    
+        if not merged_library.exists() or merged_library.stat().st_size == 0:
+            logger.info("Merging curated library with HELIANO library")
+            with merged_library.open("w") as out_handle:
+                for lib in [final_library, Path(heliano_library)]:
+                    with lib.open() as in_handle:
+                        shutil.copyfileobj(in_handle, out_handle)
+    
+        final_library = merged_library
 
     tbl = outdir / f"{taxon}.fa.tbl"
     out = outdir / f"{taxon}.fa.out"
