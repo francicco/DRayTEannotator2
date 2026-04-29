@@ -1,6 +1,6 @@
 from .ltr import run_ltr_module
 from .tir import run_tir_module
-from .helitron import run_helitron_module
+from .heliano import run_helitron_module
 from .merge import write_structure_library
 
 __all__ = [
