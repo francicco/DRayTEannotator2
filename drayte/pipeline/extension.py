@@ -239,6 +239,11 @@ def run(config, discovery_result: dict, logger) -> dict:
 
             category = categorize_extension(hit_count, consensus_length)
 
+            if not rep_fa or not Path(rep_fa).exists() or Path(rep_fa).stat().st_size == 0:
+                status = "failed_extension"
+                error_message = "No rep.fa produced"
+                raise RuntimeError(error_message)
+
             if rep_fa and rep_fa.exists():
                 if not rep_file.exists() or rep_file.stat().st_size == 0:
                     shutil.copy2(rep_fa, rep_file)
@@ -263,10 +268,6 @@ def run(config, discovery_result: dict, logger) -> dict:
                 dst = target_dir / png_file.name
                 if not dst.exists():
                     shutil.copy2(png_file, dst)
-
-            if not rep_fa or not Path(rep_fa).exists():
-                status = "failed_extension"
-                error_message = "No rep.fa produced"
 
         except Exception as exc:
             status = "failed_extension"
