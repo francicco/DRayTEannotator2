@@ -67,7 +67,8 @@ def run_extend_consensus(
 def postprocess_extension_outputs(
     te_id: str,
     te_workdir: str | Path,
-) -> tuple[Optional[Path], Optional[Path], Optional[Path], int, int]:
+    ) -> tuple[Optional[Path], Optional[Path], Optional[Path], int, int]:
+    
     te_workdir = Path(te_workdir)
 
     rep_src = te_workdir / "rep"
@@ -82,7 +83,13 @@ def postprocess_extension_outputs(
     hit_count = 0
     if unextended.exists():
         with open(unextended) as handle:
-            hit_count = sum(1 for line in handle if line.startswith(">"))
+            hit_count = sum(
+                1 for line in handle
+                if line.startswith(">")
+                and not line.startswith(">CONSENSUS-")
+                and not line.startswith(">CORECONS")
+                and not line.startswith(">repam-newrep")
+            )
 
     consensus_length = 0
 
