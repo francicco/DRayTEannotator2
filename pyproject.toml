@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "drayte"
 version = "0.1.0"
-description = "DRayTE insect TE annotation pipeline"
+description = "DRayTE TE annotation pipeline"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,10 @@ dependencies = [
   "biopython",
   "pandas",
   "matplotlib",
+<<<<<<< HEAD
+=======
+  "pybedtools"
+>>>>>>> 511669a (Heliano added)
   "tabulate",
 ]
 
