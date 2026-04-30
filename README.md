@@ -51,6 +51,11 @@ Required
 * MAFFT
 * TE-Aid
 
+For the option of running HELIANO, it is required:
+
+* HELIANO
+* MMseqs2
+
 Required external scripts
 
 The pipeline currently uses:
