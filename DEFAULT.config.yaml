@@ -24,3 +24,7 @@ structure:
   heliano:
     enabled: false
     bin: /user/work/tk19812/micromamba/envs/earlgrey/bin/heliano
+    mmseqs_bin: /user/work/tk19812/software/mmseqs/bin/mmseqs 
+    redundancy_identity: 0.90
+    query_cov: 0.80
+    threads: 16

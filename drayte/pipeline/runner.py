@@ -46,8 +46,8 @@ def main() -> None:
     heliano_result = heliano.run(config, curation_result, logger)
     write_manifest(config.outdir_path / "heliano", "heliano", heliano_result)
 
-    if heliano_result.get("heliano_library"):
-        curation_result["heliano_library"] = heliano_result["heliano_library"]
+    if heliano_result.get("heliano_unique_library"):
+        curation_result["heliano_library"] = heliano_result["heliano_unique_library"]
 
     final_annotation_result = final_annotation.run(config, curation_result, logger)
     write_manifest(config.outdir_path / "final_annotation", "final_annotation", final_annotation_result)
