@@ -28,3 +28,10 @@ structure:
     redundancy_identity: 0.90
     query_cov: 0.80
     threads: 16
+
+annotation_refinement:
+  mode: loose
+  max_gap: 150
+  include_nested: false
+  max_consensus_overlap: 50
+  max_consensus_jump: 10000

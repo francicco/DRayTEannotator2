@@ -138,6 +138,40 @@ def read_repeatmasker_out(path: Path) -> pd.DataFrame:
 
     return df
 
+def read_refined_tsv(path: Path) -> pd.DataFrame:
+    df = pd.read_csv(path, sep="\t")
+
+    required = {
+        "locus_id", "seqid", "start", "end", "length",
+        "strand", "family", "class", "n_fragments", "mean_div",
+    }
+
+    missing = required - set(df.columns)
+    if missing:
+        raise RuntimeError(f"Refined TSV missing columns: {missing}")
+
+    out = pd.DataFrame()
+    out["query"] = df["seqid"]
+    out["start"] = df["start"].astype(int)
+    out["end"] = df["end"].astype(int)
+    out["length_bp"] = df["length"].astype(int)
+    out["strand"] = df["strand"]
+    out["family"] = df["family"]
+    out["repeat_class_raw"] = df["class"]
+    out["repeat_class"] = df["class"]
+    out["class"] = df["class"].apply(major_class)
+    out["classification"] = out["class"]
+    out["superfamily"] = df["class"].astype(str).apply(
+        lambda x: x.split("/", 1)[1] if "/" in x else x
+    )
+    out["perc_div"] = df["mean_div"].astype(float)
+    out["perc_del"] = 0.0
+    out["perc_ins"] = 0.0
+    out["sw_score"] = 0.0
+    out["repeatmasker_nested_flag"] = False
+    out["fragments_merged"] = df["n_fragments"].astype(int)
+
+    return out
 
 def defragment_hits(df: pd.DataFrame, max_gap: int = 100) -> pd.DataFrame:
     merged_rows = []
@@ -278,6 +312,22 @@ def clean_repeatmasker_hits(
 def write_markdown_table(df: pd.DataFrame, path: Path) -> None:
     path.write_text(df.to_markdown(index=False) + "\n")
 
+def non_overlapping_coverage(df: pd.DataFrame) -> int:
+    total = 0
+
+    for _, group in df.groupby("query", sort=False):
+        intervals = sorted(zip(group["start"].astype(int), group["end"].astype(int)))
+
+        merged = []
+        for start, end in intervals:
+            if not merged or start > merged[-1][1]:
+                merged.append([start, end])
+            else:
+                merged[-1][1] = max(merged[-1][1], end)
+
+        total += sum(end - start + 1 for start, end in merged)
+
+    return total
 
 def make_tables(
     df: pd.DataFrame,
@@ -367,7 +417,7 @@ def make_tables(
     high = high.sort_values("TE Classification")
     high["TE Classification"] = high["TE Classification"].astype(str)
 
-    total_bp = int(high["Coverage (bp)"].sum())
+    total_bp = non_overlapping_coverage(df)
     total_copy = int(high["Copy Number"].fillna(0).sum())
     non_repeat_bp = genome_size - total_bp
 
@@ -544,21 +594,28 @@ def summary_files_exist(outdir: Path, species: str) -> bool:
 
 
 def run_summary(
-    rmout: Path,
+    rmout: Path | None,
     genome_size: int,
     species: str,
     outdir: Path,
+    refined_tsv: Path | None = None,
     max_merge_gap: int = 100,
     min_nested_overlap_fraction: float = 0.80,
 ) -> None:
     outdir.mkdir(parents=True, exist_ok=True)
 
-    raw = read_repeatmasker_out(rmout)
-    clean = clean_repeatmasker_hits(
-        raw,
-        max_merge_gap=max_merge_gap,
-        min_nested_overlap_fraction=min_nested_overlap_fraction,
-    )
+    if refined_tsv is not None:
+        clean = read_refined_tsv(refined_tsv)
+    else:
+        if rmout is None:
+            raise RuntimeError("Either rmout or refined_tsv must be provided")
+    
+        raw = read_repeatmasker_out(rmout)
+        clean = clean_repeatmasker_hits(
+            raw,
+            max_merge_gap=max_merge_gap,
+            min_nested_overlap_fraction=min_nested_overlap_fraction,
+        )
 
     clean.to_csv(outdir / f"{species}.defragmented_repeats.tsv", sep="\t", index=False)
 
@@ -636,7 +693,8 @@ def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate EarlGrey-like repeat summary files.")
-    parser.add_argument("--rmout", required=True, type=Path)
+    parser.add_argument("--rmout", required=False, type=Path)
+    parser.add_argument("--refined-tsv", required=False, type=Path)
     parser.add_argument("--genome-size", required=True, type=int)
     parser.add_argument("--species", required=True)
     parser.add_argument("--outdir", required=True, type=Path)
@@ -645,8 +703,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    if args.rmout is None and args.refined_tsv is None:
+        parser.error("Either --rmout or --refined-tsv must be provided")
+
     run_summary(
         rmout=args.rmout,
+        refined_tsv=args.refined_tsv,
         genome_size=args.genome_size,
         species=args.species,
         outdir=args.outdir,

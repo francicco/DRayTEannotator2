@@ -20,7 +20,8 @@ dependencies = [
 
 [project.scripts]
 drayte = "drayte.pipeline.runner:main"
-TE-summary = "drayte.reporting.summary_cli:main"
+TE-summary = "drayte.reporting.SummaryFilesGen:main"
+TE-refine = "drayte.refinement.refine_repeatmasker:main"
 
 [tool.setuptools.packages.find]
 include = ["drayte*"]
