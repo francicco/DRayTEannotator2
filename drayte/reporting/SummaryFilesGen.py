@@ -575,7 +575,6 @@ def save_superfamily_plot(
     plt.savefig(outpath)
     plt.close()
 
-
 def summary_files_exist(outdir: Path, species: str) -> bool:
     required = [
         outdir / f"{species}.summaryPie.pdf",
@@ -633,6 +632,11 @@ def run_summary(
     save_split_landscape(div, species, outdir / f"{species}_split_class_landscape.pdf")
     save_superfamily_plot(div, species, outdir / f"{species}_superfamily_div_plot.pdf")
 
+    print("\n" + "=" * 60)
+    print(f"{species} TE summary (high-level)")
+    print("=" * 60)
+    print(high.to_markdown(index=False))
+    print()
 
 def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
     species = config.species
@@ -695,21 +699,36 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate EarlGrey-like repeat summary files.")
     parser.add_argument("--rmout", required=False, type=Path)
     parser.add_argument("--refined-tsv", required=False, type=Path)
-    parser.add_argument("--genome-size", required=True, type=int)
+    parser.add_argument("--genome-size", required=False, type=int)
+    parser.add_argument("--genome", required=False, type=Path)
     parser.add_argument("--species", required=True)
     parser.add_argument("--outdir", required=True, type=Path)
     parser.add_argument("--max-merge-gap", type=int, default=100)
     parser.add_argument("--min-nested-overlap-fraction", type=float, default=0.80)
+    parser.add_argument("--print-summary", action="store_true")
 
     args = parser.parse_args()
 
     if args.rmout is None and args.refined_tsv is None:
         parser.error("Either --rmout or --refined-tsv must be provided")
+    if args.genome_size is None and args.genome is None:
+        parser.error("Either --genome-size or --genome must be provided")
+    if args.genome_size is not None and args.genome is not None:
+        parser.error("Provide only one of --genome-size or --genome")
+
+    if args.genome is not None:
+        if not args.genome.exists() or args.genome.stat().st_size == 0:
+            raise FileNotFoundError(f"Genome FASTA not found or empty: {args.genome}")
+        genome_size = fasta_size(args.genome)
+        print(f"Genome size inferred from {args.genome}: {genome_size} bp")
+    else:
+        genome_size = args.genome_size
+        print(f"Genome size provided: {genome_size} bp")
 
     run_summary(
         rmout=args.rmout,
         refined_tsv=args.refined_tsv,
-        genome_size=args.genome_size,
+        genome_size=genome_size,
         species=args.species,
         outdir=args.outdir,
         max_merge_gap=args.max_merge_gap,
