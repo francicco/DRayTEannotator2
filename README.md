@@ -17,7 +17,7 @@ Key outputs:
 
 -----
 
-Core pipeline
+## Core pipeline
 
 * RepeatModeler2-based de novo TE discovery
 * RepeatMasker-based genome annotation
@@ -69,7 +69,7 @@ This enables biologically meaningful separation of:
     * Repeat landscapes
     * Nested vs non-nested comparisons
 
-⸻
+-----
 
 ## Installation
 
@@ -89,7 +89,7 @@ source drayte/bin/activate
 pip install -e .
 ```
 
-�
+-----
 
 ## Dependencies
 
@@ -122,6 +122,8 @@ Optional:
 * TE-Aid (manual curation)
 * MMseqs2
 
+-----
+
 ### Required external scripts
 
 The pipeline currently uses:
@@ -139,7 +141,7 @@ Recommended
 * `twoBitInfo` from KentUtils
 * `faToTwoBit` from KentUtils
 
-⸻
+-----
 
 ## Configuration
 
@@ -167,7 +169,7 @@ refine_max_gap: 150
 
 Adjust all paths to your local installation.
 
-⸻
+-----
 
 ## Running the Pipeline
 
@@ -175,7 +177,7 @@ Run with:
 
 `drayte --config config.yaml`
 
-⸻
+-----
 
 ## Post-processing
 
@@ -198,10 +200,9 @@ TE-summary \
   --outdir Cant.summaryFiles
 ```
 
-⸻
+-----
 
-
-Output Structure
+## Output Structure
 
 
 ```
@@ -223,13 +224,15 @@ output/
     └── TE composition figures
 ```
 
+-----
+
 ## Important final output:
 
 `curation/Final.RepeatModeler.Lib.fa`
 
 This is the curated TE library for downstream RepeatMasker annotation.
 
-⸻
+-----
 
 ## Recommended strategy
 
@@ -239,7 +242,7 @@ This is the curated TE library for downstream RepeatMasker annotation.
 4. Apply TE-refine
 5. Generate summaries with TE-summary
 
-⸻
+-----
 
 ## Notes
 
@@ -255,7 +258,7 @@ Avoid non-standard formats such as:
 
 These can break downstream classification and summary parsing.
 
-⸻
+-----
 
 ## Citation
 
@@ -275,7 +278,7 @@ and ...
 
 and any additional tools used in your specific analysis.
 
-⸻
+-----
 
 ## Contact
 
