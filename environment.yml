@@ -1,0 +1,39 @@
+name: drayte
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python>=3.10
+  - pip
+  - pandas
+  - numpy
+  - matplotlib
+  - tabulate
+  - biopython
+  - pyyaml
+
+  # core external tools
+  - repeatmodeler=2.*
+  - repeatmasker
+  - repeatscout
+  - rmblast
+  - trf
+  - genometools-genometools
+  - seqkit
+  - mmseqs2
+  - diamond
+  - cd-hit
+  - emboss
+
+  # Perl/R support often needed by RepeatMasker/RepeatModeler/EarlGrey-like tooling
+  - perl
+  - perl-bioperl
+  - r-base
+  - r-tidyverse
+  - bioconductor-biostrings
+  - bioconductor-bsgenome
+
+  - pip:
+      - -e .

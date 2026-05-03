@@ -1,62 +1,128 @@
 # DRayTEannotator2
 
-DRayTEannotator2 is a transposable element (TE) annotation workflow designed for de novo repeat discovery, consensus extension, reclassification, curation, and final TE library generation for downstream genome annotation.
+DRayTEannotator2 is a modular workflow for transposable element (TE) discovery, refinement, and genome annotation. It combines de novo repeat discovery, consensus extension, structural-aware curation, and post-annotation refinement into a reproducible and scalable pipeline.
 
-The pipeline is inspired by the original DRayTE workflow and modernized into a modular Python-based implementation with clearer stage separation, reproducibility, and easier maintenance.
+The workflow builds upon the original DRayTE approach and extends it with modern Python-based orchestration, improved reproducibility, and post-processing modules inspired by RepeatCraft and EarlGrey.
 
-The standard workflow is:
+## Workflow overview:
 
-`Discovery → Extension → Reclassify → Curation → Report`
+`Discovery → Extension → Reclassification → Curation → Annotation → Refinement → Summary`
 
-The final curated TE library can then be used for genome-wide annotation with RepeatMasker or integrated with TE libraries from related species for iterative masking and comparative analyses.
+Key outputs:
+
+* Curated TE library (FASTA)
+* Genome-wide TE annotation (RepeatMasker)
+* Refined TE loci (GFF3/BED/TSV)
+* Summary tables and publication-ready figures
 
 ⸻
 
-## Main Features
+Core pipeline
 
-* RepeatModeler-based de novo TE discovery
-* RepeatMasker-based first-pass annotation
-* Consensus extension using `davidExtendConsRAM.pl`
+* RepeatModeler2-based de novo TE discovery
+* RepeatMasker-based genome annotation
+* Consensus extension (davidExtendConsRAM.pl)
 * RepeatClassifier reclassification
-* TE-Aid assisted curation support
-* Final curated TE library generation
-* Designed for HPC / cluster environments
-* Config-driven execution
-* Modular Python implementation replacing older shell-heavy workflows
+* TE-Aid-assisted curation
+
+New in DRayTEannotator2
+
+1. Annotation refinement (TE-refine)
+
+* RepeatCraft-inspired defragmentation
+* Two modes:
+    * strict: conservative merging
+    * loose: permissive merging across intervening elements
+* Nested TE detection
+* Consensus-coordinate consistency filtering
+* Outputs:
+    * *.refinedRepeats.gff3
+    * *.refinedRepeats.bed
+    * *.annotation_refinement.tsv
+    * *.annotation_refinement.stats.tsv
+    * *.annotation_refinement.manifest.json
+
+2. Nested-aware classification
+
+Each locus is classified as:
+```
+LINE
+LINE-nested
+LTR
+LTR-nested
+...
+```
+
+This enables biologically meaningful separation of:
+
+* primary insertions
+* nested insertions
+
+3. Summary generation (TE-summary)
+
+* EarlGrey-like outputs
+* High-level and family-level TE tables
+* Divergence landscapes
+* Superfamily profiles
+* Publication-ready figures:
+    * TE composition barplots
+    * Repeat landscapes
+    * Nested vs non-nested comparisons
 
 ⸻
+
+## Installation
+
+Recommended: Micromamba / Conda
+
+Create environment:
+```
+micromamba create -n drayte -f environment.yml
+micromamba activate drayte
+pip install -e .
+```
+
+Alternative: Python virtualenv
+```
+python -m venv drayte
+source drayte/bin/activate
+pip install -e .
+```
+
+�
 
 ## Dependencies
 
-Core software
+Core
 
-The following tools must be installed and accessible.
+* Python ≥ 3.10
+* pandas, numpy, matplotlib
 
-Required
+TE discovery & annotation
 
-* Python >= 3.9
-* RepeatModeler 2
+* RepeatModeler2
 * RepeatMasker
-* RMBlast (recommended) or CrossMatch
+* RMBlast (recommended)
 * RepeatClassifier
 * RepeatScout
-* Perl
-* BioPerl
-* BEDTools
+
+Additional tools
+
+* MMseqs2
+* DIAMOND
+* CD-HIT
+* EMBOSS (getorf)
 * BLAST+
-* seqtk
-* samtools
-* cd-hit
-* EMBOSS
-* MAFFT
-* TE-Aid
+* BEDTools
+* seqkit
 
-For the option of running HELIANO, it is required:
+Optional:
 
-* HELIANO
+* HELIANO (Helitron detection)
+* TE-Aid (manual curation)
 * MMseqs2
 
-Required external scripts
+### Required external scripts
 
 The pipeline currently uses:
 
@@ -75,43 +141,6 @@ Recommended
 
 ⸻
 
-## Python Environment
-
-Create a dedicated environment:
-
-```
-python -m venv DRayTEannotator2
-source DRayTEannotator2/bin/activate
-pip install -e .
-```
-
-If using Conda or Micromamba:
-
-```
-micromamba create -n DRayTEannotator2 python=3.10
-micromamba activate DRayTEannotator2
-pip install -e .
-```
-
-⸻
-
-## Installation
-
-Clone the repository:
-
-```
-git clone https://github.com/francicco/DRayTEannotator2.git
-cd DRayTEannotator2
-```
-
-Install the package:
-
-`pip install -e .`
-
-This will make the drayte command available.
-
-⸻
-
 ## Configuration
 
 The pipeline runs using a YAML configuration file.
@@ -119,17 +148,21 @@ The pipeline runs using a YAML configuration file.
 Example:
 
 ```
-species: SpeciesTag
+species: Cant
 threads: 16
-input_genome: /path/to/genome.fasta
-output_dir: /path/to/output
+input_genome: genome.fa
+output_dir: output/
+
 repeatmodeler_dir: /path/to/RepeatModeler
-repeatmasker_bin: /path/to/RepeatMasker
-repeatclassifier_bin: /path/to/RepeatClassifier
-repeatscout_dir: /path/to/RepeatScout
-repeatmodeler_extend_script: /path/to/davidExtendConsRAM.pl
-te_aid_dir: /path/to/TE-Aid
-blast_bin: /path/to/blast+
+repeatmasker_bin: RepeatMasker
+repeatclassifier_bin: RepeatClassifier
+
+# Extension
+repeatmodeler_extend_script: davidExtendConsRAM.pl
+
+# Refinement
+refine_mode: loose
+refine_max_gap: 150
 ```
 
 Adjust all paths to your local installation.
@@ -144,30 +177,50 @@ Run with:
 
 ⸻
 
+## Post-processing
+
+TE refinement
+```
+TE-refine \
+  --rmout genome.out \
+  --species Cant \
+  --outdir Cant.annotation_refinement \
+  --max-gap 150 \
+  --mode loose
+```
+
+TE summary
+```
+TE-summary \
+  --refined-tsv Cant.annotation_refinement/Cant.annotation_refinement.tsv \
+  --genome genome.fa \
+  --species Cant \
+  --outdir Cant.summaryFiles
+```
+
+⸻
+
+
 Output Structure
 
-Typical output layout:
 
 ```
 output/
 ├── discovery/
-│   ├── assemblies_dir/
-│   ├── rmodeler_dir/
-│   └── rmasker_dir/
-│
-├── extensions/
-│   ├── extract_align/
-│   ├── extensionwork/
-│   └── extendlogs/
-│
+├── extension/
 ├── reclassify/
-│
 ├── curation/
-│   ├── prioritize/
-│   ├── te-aid/
-│   └── Final.RepeatModeler.Lib.fa
-│
-└── reports/
+├── final_annotation/
+├── annotation_refinement/
+│   ├── *.gff3
+│   ├── *.tsv
+│   ├── *.stats.tsv
+│   └── *.manifest.json
+└── summaryFiles/
+    ├── highLevelCount.txt
+    ├── familyLevelCount.txt
+    ├── divergence plots
+    └── TE composition figures
 ```
 
 ## Important final output:
@@ -178,17 +231,13 @@ This is the curated TE library for downstream RepeatMasker annotation.
 
 ⸻
 
-## Recommended Final Annotation Strategy
+## Recommended strategy
 
-For best results:
-
-1. Run DRayTEannotator2 independently for each species
-2. Collect curated TE libraries
-3. Merge libraries across related species
-4. Remove redundancy if necessary
-5. Perform final RepeatMasker annotation using the combined library
-
-This improves sensitivity and captures lineage-specific TE diversity.
+1. Run DRayTEannotator2 per species
+2. Merge TE libraries across species
+3. Run RepeatMasker with combined library
+4. Apply TE-refine
+5. Generate summaries with TE-summary
 
 ⸻
 
@@ -205,21 +254,6 @@ Avoid non-standard formats such as:
 `>family__CLASS___FAMILY#CLASS/FAMILY`
 
 These can break downstream classification and summary parsing.
-
-⸻
-
-## EarlGrey integration
-
-EarlGrey can be run as a second line of evidence, as an independent validation workflow, particularly useful for:
-
-* Helitron detection
-* TIR detection
-* LTR structural validation
-* comparison of conservative vs permissive TE discovery
-
-Current recommendation:
-
-Use DRayTE as the main discovery workflow and EarlGrey as complementary structural validation.
 
 ⸻
 

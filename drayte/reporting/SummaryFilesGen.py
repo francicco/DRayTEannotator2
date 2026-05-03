@@ -160,9 +160,13 @@ def read_refined_tsv(path: Path) -> pd.DataFrame:
     out["repeat_class_raw"] = df["class"]
     out["repeat_class"] = df["class"]
     out["class"] = df["class"].apply(major_class)
-    out["classification"] = out["class"]
+    if "classification" in df.columns:
+        out["classification"] = df["classification"]
+    else:
+        out["classification"] = out["class"]
+        
     out["superfamily"] = df["class"].astype(str).apply(
-        lambda x: x.split("/", 1)[1] if "/" in x else x
+            lambda x: x.split("/", 1)[1] if "/" in x else x
     )
     out["perc_div"] = df["mean_div"].astype(float)
     out["perc_del"] = 0.0
@@ -587,6 +591,7 @@ def summary_files_exist(outdir: Path, species: str) -> bool:
         outdir / f"{species}_superfamily_div_plot.pdf",
         outdir / f"{species}_divergence_summary_table.tsv",
         outdir / f"{species}.defragmented_repeats.tsv",
+        outdir / f"{species}.highLevel_TE_composition.pdf",
     ]
 
     return all(f.exists() and f.stat().st_size > 0 for f in required)
@@ -628,6 +633,7 @@ def run_summary(
     write_markdown_table(family, outdir / f"{species}.familyLevelCount.kable")
 
     save_pie(high, species, outdir / f"{species}.summaryPie.pdf")
+    save_summary_barplot(high, species, outdir / f"{species}.highLevel_TE_composition.pdf")
     save_class_landscape(div, species, outdir / f"{species}_classification_landscape.pdf")
     save_split_landscape(div, species, outdir / f"{species}_split_class_landscape.pdf")
     save_superfamily_plot(div, species, outdir / f"{species}_superfamily_div_plot.pdf")
@@ -694,6 +700,22 @@ def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
         "defragmented_repeats": str(outdir / f"{species}.defragmented_repeats.tsv"),
     }
 
+def save_summary_barplot(high: pd.DataFrame, species: str, outpath: Path) -> None:
+    dat = high[
+        ~high["TE Classification"].isin(["Total Interspersed Repeat", "Non-Repeat"])
+    ].copy()
+
+    dat = dat[dat["Coverage (bp)"] > 0]
+
+    plt.figure(figsize=(10, 5))
+    plt.bar(dat["TE Classification"], dat["% Genome Coverage"])
+    plt.ylabel("% genome coverage")
+    plt.xlabel("TE classification")
+    plt.title(f"{species} TE composition")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.savefig(outpath)
+    plt.close()
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate EarlGrey-like repeat summary files.")

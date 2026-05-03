@@ -728,7 +728,34 @@ def write_bed(loci: list[TELocus], path: Path) -> None:
             )
 
 
-def write_tsv(loci: list[TELocus], path: Path) -> None:
+def major_class_from_repeat_class(repeat_class: str) -> str:
+    x = str(repeat_class)
+
+    if not x or x == "nan":
+        return "Unclassified"
+    if "Penelope" in x or x.startswith("PLE"):
+        return "Penelope"
+    if x.startswith("DNA"):
+        return "DNA"
+    if x.startswith("LINE"):
+        return "LINE"
+    if x.startswith("SINE"):
+        return "SINE"
+    if x.startswith("LTR"):
+        return "LTR"
+    if x.startswith("RC") or "Helitron" in x or "Rolling" in x:
+        return "Rolling Circle"
+    if any(k in x for k in ["Simple_repeat", "Low_complexity", "Satellite", "RNA", "rRNA", "tRNA", "snRNA", "srpRNA"]):
+        return "Other (Simple Repeat, Microsatellite, RNA)"
+    if "Unknown" in x or "Unclassified" in x:
+        return "Unclassified"
+    return "Unclassified"
+
+def write_tsv(
+    loci: list[TELocus],
+    path: Path,
+    overlaps: dict[str, list[str]] | None = None,
+) -> None:
     """
     Write a tabular summary of refined loci.
 
@@ -748,13 +775,22 @@ def write_tsv(loci: list[TELocus], path: Path) -> None:
                 "strand",
                 "family",
                 "class",
+                "classification",
                 "n_fragments",
                 "mean_div",
                 "raw_ids",
+                "overlaps",
+                "overlap_ids",
             ]
         )
 
         for locus in loci:
+            overlap_ids = overlaps.get(locus.locus_id, []) if overlaps else []
+            has_overlap = bool(overlap_ids)
+
+            base_class = major_class_from_repeat_class(locus.repeat_class)
+            classification = f"{base_class}-nested" if has_overlap else base_class
+
             writer.writerow(
                 [
                     locus.locus_id,
@@ -765,12 +801,14 @@ def write_tsv(loci: list[TELocus], path: Path) -> None:
                     locus.strand,
                     locus.repeat_name,
                     locus.repeat_class,
+                    classification,
                     len(locus.hits),
                     round(sum(h.perc_div for h in locus.hits) / len(locus.hits), 3),
                     ",".join(h.rm_id for h in locus.hits),
+                    "Yes" if has_overlap else "No",
+                    ",".join(overlap_ids) if overlap_ids else "None",
                 ]
             )
-
 
 def write_nested_gff(hits: list[RMHit], path: Path, species: str) -> None:
     """
@@ -920,7 +958,7 @@ def refine_repeatmasker(
     # 5. Write outputs
     write_gff3(loci, refined_gff, overlaps=overlaps)
     write_bed(loci, refined_bed)
-    write_tsv(loci, refined_tsv)
+    write_tsv(loci, refined_tsv, overlaps=overlaps)
     write_nested_gff(hits, nested_gff, species)
 
     # 6. Validate final GFF3
