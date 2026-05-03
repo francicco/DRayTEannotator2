@@ -67,6 +67,12 @@ def filter_heliano_against_curated(
     import subprocess
     import shutil
 
+	unique_fa = outdir / f"{species}.heliano.unique_vs_curated.fa"
+
+    if unique_lib.exists() and unique_lib.stat().st_size > 0:
+        logger.info("HELIANO unique library already exists: %s", unique_fa)
+        return unique_lib  # already done
+
     mmseqs_bin = heliano_cfg.get("mmseqs_bin", "mmseqs")
     identity = str(heliano_cfg.get("redundancy_identity", 0.90))
     query_cov = str(heliano_cfg.get("query_cov", 0.80))
@@ -74,7 +80,6 @@ def filter_heliano_against_curated(
 
     tsv = outdir / f"{species}.heliano_vs_curated.tsv"
     redundant_ids = outdir / f"{species}.heliano.redundant.ids"
-    unique_fa = outdir / f"{species}.heliano.unique_vs_curated.fa"
     tmpdir = outdir / "mmseqs_tmp"
 
     # Clean tmpdir if exists (MMseqs can fail otherwise)

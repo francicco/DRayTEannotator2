@@ -596,6 +596,270 @@ def mark_locus_overlaps(loci: list[TELocus]) -> dict[str, list[str]]:
     return overlaps
 
 # ---------------------------------------------------------------------
+# Overlap resolution
+# ---------------------------------------------------------------------
+
+def locus_mean_div(locus: TELocus) -> float:
+    """
+    Return the mean RepeatMasker divergence for a reconstructed TE locus.
+
+    A locus can be composed of one or more raw RepeatMasker fragments.
+    We use the mean divergence across those fragments as a simple proxy
+    for how diverged the locus is from its consensus sequence.
+
+    Lower values usually indicate younger or better-supported insertions.
+    """
+    return sum(h.perc_div for h in locus.hits) / len(locus.hits)
+
+
+def loci_overlap(a: TELocus, b: TELocus) -> bool:
+    """
+    Return True if two loci overlap on the same genomic sequence.
+
+    This tests only genomic coordinates, not TE family, class, or strand.
+    It is used for conflict resolution, where any overlap between two
+    final annotation records is considered a conflict.
+    """
+    if a.query != b.query:
+        return False
+
+    return a.start <= b.end and b.start <= a.end
+
+
+def locus_score(
+    locus: TELocus,
+    strategy: str = "longest_lowdiv",
+) -> float:
+    """
+    Score a locus during overlap resolution.
+
+    Higher score means the locus is preferred when two or more loci overlap.
+
+    Available strategies:
+
+    1. "longest"
+       Prefer the longest locus.
+       This is simple and tends to retain more genomic coverage.
+
+    2. "lowest_divergence"
+       Prefer the least-diverged locus.
+       This favours hits that are closer to their consensus sequence.
+
+    3. "longest_lowdiv"
+       Prefer long loci, but penalize high divergence.
+       This is the recommended default because it balances coverage and
+       sequence support.
+
+    The penalty factor is deliberately simple:
+        score = length - 25 * mean_divergence
+
+    Example:
+        1000 bp locus with 10% divergence:
+        score = 1000 - 250 = 750
+    """
+    if strategy == "longest":
+        return float(locus.length)
+
+    if strategy == "lowest_divergence":
+        return -locus_mean_div(locus)
+
+    if strategy == "longest_lowdiv":
+        return float(locus.length) - (25.0 * locus_mean_div(locus))
+
+    raise ValueError(f"Unknown overlap scoring strategy: {strategy}")
+
+
+def find_overlap_components(loci: list[TELocus]) -> list[list[TELocus]]:
+    """
+    Find connected components of overlapping loci.
+
+    Formal idea:
+        - Each locus is a node.
+        - An edge connects two loci if their genomic intervals overlap.
+        - A connected component is a set of loci linked by one or more
+          direct or indirect overlaps.
+
+    Example:
+        A overlaps B
+        B overlaps C
+        A does not overlap C
+
+        These three loci still form one component:
+            {A, B, C}
+
+    Implementation:
+        This uses a sweep-line style scan per scaffold rather than building
+        an explicit graph. For interval data, this is simpler and efficient.
+
+    Output:
+        A list of components, where each component is a list of TELocus
+        objects that must be resolved together.
+    """
+    components: list[list[TELocus]] = []
+
+    by_query: dict[str, list[TELocus]] = {}
+    for locus in loci:
+        by_query.setdefault(locus.query, []).append(locus)
+
+    for _, qloci in by_query.items():
+        qloci = sorted(qloci, key=lambda x: (x.start, x.end))
+
+        current_component: list[TELocus] = []
+        current_end = -1
+
+        for locus in qloci:
+            if not current_component:
+                current_component = [locus]
+                current_end = locus.end
+                continue
+
+            if locus.start <= current_end:
+                # The locus overlaps the current component.
+                # Extend the component and update its rightmost boundary.
+                current_component.append(locus)
+                current_end = max(current_end, locus.end)
+            else:
+                # No overlap with the current component.
+                # Store the completed component and start a new one.
+                components.append(current_component)
+                current_component = [locus]
+                current_end = locus.end
+
+        if current_component:
+            components.append(current_component)
+
+    return components
+
+
+def resolve_component_greedy(
+    component: list[TELocus],
+    score_strategy: str = "longest_lowdiv",
+) -> list[TELocus]:
+    """
+    Resolve one overlap component using greedy interval scheduling.
+
+    Goal:
+        Select a subset of loci that do not overlap each other.
+
+    Algorithm:
+        1. Rank loci by biological score.
+        2. Iterate from best to worst.
+        3. Keep a locus only if it does not overlap any already-kept locus.
+
+    This is not a mathematically exact maximum-weight independent set,
+    but it is transparent, fast, and biologically controllable.
+
+    Why greedy is acceptable here:
+        TE annotations are local.
+        Most components are small.
+        The scoring rule is explicit.
+        The output is easy to inspect.
+    """
+    if len(component) <= 1:
+        return component
+
+    ranked = sorted(
+        component,
+        key=lambda locus: (
+            locus_score(locus, strategy=score_strategy),
+            locus.length,
+            -locus_mean_div(locus),
+        ),
+        reverse=True,
+    )
+
+    selected: list[TELocus] = []
+
+    for locus in ranked:
+        if not any(loci_overlap(locus, kept) for kept in selected):
+            selected.append(locus)
+
+    selected.sort(key=lambda l: (l.query, l.start, l.end, l.repeat_name))
+
+    return selected
+
+
+def resolve_overlapping_loci(
+    loci: list[TELocus],
+    species: str,
+    score_strategy: str = "longest_lowdiv",
+) -> list[TELocus]:
+    """
+    Resolve overlaps across all reconstructed loci.
+
+    This function produces the final non-overlapping annotation layer.
+
+    Steps:
+        1. Identify overlap components.
+        2. Resolve each component independently.
+        3. Combine selected loci.
+        4. Sort by genomic coordinate.
+        5. Reassign stable filtered IDs.
+
+    The original refined loci are not modified in the main output.
+    The filtered loci receive IDs like:
+        Species_TEF0000001
+        Species_TEF0000002
+
+    TEF = TE filtered.
+    """
+    components = find_overlap_components(loci)
+
+    selected: list[TELocus] = []
+
+    for component in components:
+        if len(component) == 1:
+            selected.extend(component)
+        else:
+            selected.extend(
+                resolve_component_greedy(
+                    component,
+                    score_strategy=score_strategy,
+                )
+            )
+
+    selected.sort(key=lambda l: (l.query, l.start, l.end, l.repeat_name))
+
+    width = max(7, len(str(len(selected))))
+
+    for i, locus in enumerate(selected, start=1):
+        locus.locus_id = f"{species}_TEF{str(i).zfill(width)}"
+
+    return selected
+
+
+def validate_non_overlapping_loci(loci: list[TELocus]) -> None:
+    """
+    Validate that the filtered annotation contains no overlapping loci.
+
+    This is a fail-fast check. If the filtered GFF is meant to be final,
+    it must not contain unresolved overlaps.
+
+    Raises:
+        ValueError if any overlap remains.
+    """
+    by_query: dict[str, list[TELocus]] = {}
+
+    for locus in loci:
+        by_query.setdefault(locus.query, []).append(locus)
+
+    for query, qloci in by_query.items():
+        qloci = sorted(qloci, key=lambda x: (x.start, x.end))
+
+        previous = None
+
+        for locus in qloci:
+            if previous is not None and locus.start <= previous.end:
+                raise ValueError(
+                    "Filtered loci still overlap: "
+                    f"{query}:{previous.start}-{previous.end} "
+                    f"({previous.locus_id}) overlaps "
+                    f"{query}:{locus.start}-{locus.end} ({locus.locus_id})"
+                )
+
+            previous = locus
+
+# ---------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------
 
@@ -905,6 +1169,8 @@ def refine_repeatmasker(
     mode: str = "strict",
     max_consensus_overlap: int = 50,
     max_consensus_jump: int = 10000,
+    resolve_overlaps: bool = False,
+    overlap_score: str = "longest_lowdiv",
 ) -> dict:
     """
     Run the full refinement workflow.
@@ -924,6 +1190,11 @@ def refine_repeatmasker(
       - the standalone TE-refine command
       - the DRayTE pipeline stage
     """
+
+    if overlap_score not in {"longest", "lowest_divergence", "longest_lowdiv"}:
+        raise ValueError(
+            "overlap_score must be one of: longest, lowest_divergence, longest_lowdiv"
+        )
 
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -954,6 +1225,9 @@ def refine_repeatmasker(
     refined_bed = outdir / f"{species}.refinedRepeats.bed"
     refined_tsv = outdir / f"{species}.annotation_refinement.tsv"
     nested_gff = outdir / f"{species}.nestedRepeats.gff3"
+    filtered_gff = outdir / f"{species}.filteredRepeats.gff3"
+    filtered_bed = outdir / f"{species}.filteredRepeats.bed"
+    filtered_tsv = outdir / f"{species}.filteredRepeats.tsv"
 
     # 5. Write outputs
     write_gff3(loci, refined_gff, overlaps=overlaps)
@@ -961,16 +1235,42 @@ def refine_repeatmasker(
     write_tsv(loci, refined_tsv, overlaps=overlaps)
     write_nested_gff(hits, nested_gff, species)
 
+    filtered_loci: list[TELocus] = []
+
+    if resolve_overlaps:
+        # Resolve conflicts among overlapping reconstructed loci.
+        # This produces the final non-overlapping annotation layer.
+        filtered_loci = resolve_overlapping_loci(
+            loci=loci,
+            species=species,
+            score_strategy=overlap_score,
+        )
+
+        # Fail if any overlap remains.
+        validate_non_overlapping_loci(filtered_loci)
+
+        # After filtering, overlaps should normally be zero.
+        # We still compute them and write the attributes for consistency.
+        filtered_overlaps = mark_locus_overlaps(filtered_loci)
+
+        write_gff3(filtered_loci, filtered_gff, overlaps=filtered_overlaps)
+        write_bed(filtered_loci, filtered_bed)
+        write_tsv(filtered_loci, filtered_tsv, overlaps=filtered_overlaps)
+
+        validate_gff3(filtered_gff)
+
     # 6. Validate final GFF3
     validate_gff3(refined_gff)
 
-	# 7. Write write refinement stats
+    # 7. Write write refinement stats
     params = {
         "mode": mode,
         "max_gap": max_gap,
         "include_nested": include_nested,
         "max_consensus_overlap": max_consensus_overlap,
         "max_consensus_jump": max_consensus_jump,
+        "resolve_overlaps": resolve_overlaps,
+        "overlap_score": overlap_score,
     }
     
     stats = write_refinement_stats(
@@ -991,6 +1291,10 @@ def refine_repeatmasker(
         "nested_gff": str(nested_gff),
         "stats_tsv": str(stats_tsv),
         "manifest_json": str(manifest_json),
+        "filtered_loci": len(filtered_loci) if resolve_overlaps else 0,
+        "filtered_gff": str(filtered_gff) if resolve_overlaps else None,
+        "filtered_bed": str(filtered_bed) if resolve_overlaps else None,
+        "filtered_tsv": str(filtered_tsv) if resolve_overlaps else None,
     }
     
     write_manifest(manifest_json, result)
@@ -1075,6 +1379,27 @@ def main() -> None:
         help="Maximum allowed jump between repeat-consensus coordinates when merging fragments. Default: 10000",
     )
 
+    parser.add_argument(
+        "--resolve-overlaps",
+        action="store_true",
+        help=(
+            "Produce a final non-overlapping filtered annotation "
+            "using greedy interval scheduling."
+        ),
+    )
+    
+    parser.add_argument(
+        "--overlap-score",
+        choices=["longest", "lowest_divergence", "longest_lowdiv"],
+        default="longest_lowdiv",
+        help=(
+            "Scoring strategy for overlap resolution. "
+            "longest = prefer longest loci; "
+            "lowest_divergence = prefer least-diverged loci; "
+            "longest_lowdiv = prefer long loci with divergence penalty."
+        ),
+    )
+
     args = parser.parse_args()
 
     result = refine_repeatmasker(
@@ -1083,9 +1408,11 @@ def main() -> None:
         outdir=args.outdir,
         max_gap=args.max_gap,
         include_nested=args.include_nested,
-		mode=args.mode,
+        mode=args.mode,
         max_consensus_overlap=args.max_consensus_overlap,
         max_consensus_jump=args.max_consensus_jump,
+        resolve_overlaps=args.resolve_overlaps,
+        overlap_score=args.overlap_score,
     )
 
     # Print summary in machine-readable key/value format
