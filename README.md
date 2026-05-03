@@ -6,7 +6,7 @@ The workflow builds upon the original DRayTE approach and extends it with modern
 
 ## Workflow overview:
 
-`Discovery → Extension → Reclassification → Curation → Annotation → Refinement → Summary`
+`Discovery -> Extension -> Reclassification -> Curation -> Annotation -> Refinement -> Summary`
 
 Key outputs:
 
@@ -15,7 +15,7 @@ Key outputs:
 * Refined TE loci (GFF3/BED/TSV)
 * Summary tables and publication-ready figures
 
-⸻
+-----
 
 Core pipeline
 
