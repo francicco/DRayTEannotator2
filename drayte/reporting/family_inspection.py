@@ -319,7 +319,7 @@ def run(config, refinement_result: dict, logger) -> dict:
         use_symlinks=bool(cfg.get("use_symlinks", True)),
         include_plots=bool(cfg.get("include_plots", True)),
         archive=bool(cfg.get("archive", True)),
-       include_non_te_repeats=bool(cfg.get("include_non_te_repeats", False)),
+        include_non_te_repeats=bool(cfg.get("include_non_te_repeats", False)),
     )
 
     logger.info("family_inspection completed: %s families", result["families"])
