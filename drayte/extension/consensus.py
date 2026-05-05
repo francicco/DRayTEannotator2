@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
-
+from drayte.utils.names import safe_filename
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,9 +76,11 @@ def postprocess_extension_outputs(
     png_src = te_workdir / "img.png"
     unextended = te_workdir / "repseq.unextended"
 
-    rep_out = te_workdir / f"{te_id}_rep.fa"
-    msa_out = te_workdir / f"{te_id}_MSA_extended.fa"
-    png_out = te_workdir / f"{te_id}.png"
+    safe_id = safe_filename(te_id)
+
+    rep_out = te_workdir / f"{safe_id}_rep.fa"
+    msa_out = te_workdir / f"{safe_id}_MSA_extended.fa"
+    png_out = te_workdir / f"{safe_id}.png"
 
     hit_count = 0
     if unextended.exists():

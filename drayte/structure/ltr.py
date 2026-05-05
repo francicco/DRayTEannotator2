@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-
+from drayte.utils.names import safe_filename
 from .models import StructureCandidate
 from .utils import extract_region_fasta
 
@@ -73,7 +73,7 @@ def parse_ltrharvest_gff3(
             start_i = int(start)
             end_i = int(end)
             candidate_id = f"{species}_LTRstruct_{counter}"
-            out_fasta = candidates_dir / f"{candidate_id}.fa"
+            out_fasta = candidates_dir / f"{safe_filename(candidate_id)}.fa"
 
             extract_region_fasta(
                 genome_fasta=genome_fasta,

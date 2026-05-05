@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import shutil
 from pathlib import Path
-
+from drayte.utils.names import safe_filename
 from drayte.extension.extract_align import safe_filename
 
 TELIST = ["LINE", "SINE", "LTR", "RC", "DNA", "NOHIT"]
@@ -47,9 +47,9 @@ def copy_extension_artifacts(
                 continue
 
             mapping = {
-                f"{cons_short}_rep.fa": te_dirs[group] / f"{consname}_rep.fa",
-                f"{cons_short}_MSA_extended.fa": te_dirs[group] / f"{consname}_MSA_extended.fa",
-                f"{cons_short}.png": te_dirs[group] / f"{consname}.png",
+                f"{safe_cons_short}_rep.fa": te_dirs[group] / f"{safe_consname}_rep.fa",
+                f"{safe_cons_short}_MSA_extended.fa": te_dirs[group] / f"{safe_consname}_MSA_extended.fa",
+                f"{safe_cons_short}.png": te_dirs[group] / f"{safe_consname}.png",
             }
 
             for src_name, dst in mapping.items():

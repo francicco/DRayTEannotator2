@@ -7,6 +7,7 @@ from drayte.pipeline import discovery, extension, reclassify, curation, final_an
 from drayte.structure import heliano
 from drayte.utils.logging import setup_logger
 from drayte.utils.paths import ensure_dir
+from drayte.reporting import family_inspection
 from drayte.pipeline import annotation_refinement
 from drayte.reporting.SummaryFilesGen import run_summary_files
 
@@ -55,6 +56,13 @@ def main() -> None:
 
     refinement_result = annotation_refinement.run(config, final_annotation_result, logger)
     write_manifest(config.outdir_path / "annotation_refinement", "annotation_refinement", refinement_result)
+
+    family_inspection_result = family_inspection.run(
+        config,
+        refinement_result,
+        logger,
+    )
+    write_manifest(config.outdir_path / "family_inspection", "family_inspection", family_inspection_result)
 
     summary_result = run_summary_files(
         config=config,

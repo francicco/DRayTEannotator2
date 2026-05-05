@@ -67,11 +67,11 @@ def filter_heliano_against_curated(
     import subprocess
     import shutil
 
-	unique_fa = outdir / f"{species}.heliano.unique_vs_curated.fa"
+    unique_fa = outdir / f"{species}.heliano.unique_vs_curated.fa"
 
-    if unique_lib.exists() and unique_lib.stat().st_size > 0:
+    if unique_fa.exists() and unique_fa.stat().st_size > 0:
         logger.info("HELIANO unique library already exists: %s", unique_fa)
-        return unique_lib  # already done
+        return unique_fa  # already done
 
     mmseqs_bin = heliano_cfg.get("mmseqs_bin", "mmseqs")
     identity = str(heliano_cfg.get("redundancy_identity", 0.90))
@@ -135,7 +135,7 @@ def filter_heliano_against_curated(
         n_unique,
     )
 
-    return unique_fa 
+    return unique_fa
 
 def run(config, curation_result: dict, logger) -> dict:
     species = config.species
@@ -164,7 +164,7 @@ def run(config, curation_result: dict, logger) -> dict:
     
         curated_library = Path(curation_result["final_library"])
     
-        unique_lib = filter_heliano_against_curated(
+        unique_fa = filter_heliano_against_curated(
             heliano_fa=final_lib,
             curated_fa=curated_library,
             outdir=outdir,
@@ -178,7 +178,7 @@ def run(config, curation_result: dict, logger) -> dict:
             "enabled": True,
             "outdir": str(outdir),
             "heliano_library": str(final_lib),
-            "heliano_unique_library": str(unique_lib),
+            "heliano_unique_library": str(unique_fa),
         }
 
     genome_fa = config.outdir_path / "discovery" / "assemblies_dir" / f"{species}.fa"
@@ -230,7 +230,7 @@ def run(config, curation_result: dict, logger) -> dict:
 
     curated_library = Path(curation_result["final_library"])
     
-    unique_lib = filter_heliano_against_curated(
+    unique_fa = filter_heliano_against_curated(
         heliano_fa=final_lib,
         curated_fa=curated_library,
         outdir=outdir,
@@ -244,5 +244,5 @@ def run(config, curation_result: dict, logger) -> dict:
         "enabled": True,
         "outdir": str(outdir),
         "heliano_library": str(final_lib),
-        "heliano_unique_library": str(unique_lib),
+        "heliano_unique_library": str(unique_fa),
     }

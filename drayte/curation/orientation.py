@@ -5,7 +5,7 @@ from pathlib import Path
 
 from Bio import SeqIO
 from Bio.Seq import Seq
-
+from drayte.utils.names import safe_filename
 from .repeatpeps import run_diamond_blastx, ensure_repeatpeps_db, parse_top_hit_per_query
 
 
@@ -59,10 +59,12 @@ def orient_group_files(
             family = row["family"]
             group_dir = te_aid_dir / te_class
 
-            rep_fa = group_dir / f"{consname}_rep.fa"
-            msa_fa = group_dir / f"{consname}_MSA_extended.fa"
-            rep_mod_fa = group_dir / f"{consname}_rep_mod.fa"
-            blastx_out = group_dir / f"{consname}_extended_rep_blastx.out"
+            safe_consname = safe_filename(consname)
+
+            rep_fa = group_dir / f"{safe_consname}_rep.fa"
+            msa_fa = group_dir / f"{safe_consname}_MSA_extended.fa"
+            rep_mod_fa = group_dir / f"{safe_consname}_rep_mod.fa"
+            blastx_out = group_dir / f"{safe_consname}_extended_rep_blastx.out"
 
             if not rep_fa.exists():
                 logger.warning("Missing rep file for orientation check: %s", rep_fa)
