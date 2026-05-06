@@ -54,3 +54,30 @@ def test_build_families_from_evidence(tmp_path: Path):
     assert by_id["fam1"].orf_count >= 1
     assert by_id["fam1"].rt_present
     assert not by_id["fam2"].rt_present
+
+
+def test_build_families_from_structure_evidence(tmp_path: Path):
+    from drayte.classification.structure import StructureEvidence
+
+    fasta = tmp_path / "families.fa"
+    fasta.write_text(
+        ">fam1\n"
+        "ATG" + "AAA" * 200 + "TAA" + "\n"
+    )
+
+    families = build_families_from_evidence(
+        fasta,
+        domain_hits=[],
+        structure_evidence=[
+            StructureEvidence("fam1", "LTR", 0.9, "ltrharvest"),
+            StructureEvidence("fam1", "TSD", 0.8, "ltrharvest"),
+        ],
+        min_orf_nt=300,
+        include_reverse_orfs=False,
+    )
+
+    f = families[0]
+
+    assert f.ltr_present
+    assert f.tsd_present
+    assert not f.tir_present
