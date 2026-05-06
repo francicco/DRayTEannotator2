@@ -1,7 +1,11 @@
 def is_ltr_candidate(f):
     return (
         f.ltr_present and
-        (f.rt_present or f.homology_class == "LTR")
+        (
+            f.rt_present or
+            f.integrase_present or
+            f.homology_class == "LTR"
+        )
     )
 
 
@@ -14,6 +18,16 @@ def is_dna_tir_candidate(f):
 
 def is_line_candidate(f):
     return (
-        f.rt_present or
-        (f.polyA_present and f.homology_class == "LINE")
+        (
+            f.homology_class == "LINE"
+        )
+        or
+        (
+            f.rt_present and
+            not f.ltr_present and
+            (
+                f.polyA_present or
+                f.homology_class == "LINE"
+            )
+        )
     )
