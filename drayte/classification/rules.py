@@ -1,40 +1,69 @@
 def is_ltr_candidate(f):
-    return (
-        f.ltr_present and
+
+    # Structural LTR
+    if f.ltr_present:
+        return True
+
+    # Retroviral architecture
+    if (
+        f.rt_present and
         (
-            f.rt_present or
             f.integrase_present or
-            f.homology_class == "LTR"
+            f.rnaseh_present
         )
-    )
+    ):
+        return True
+
+    # Homology support
+    if f.homology_class == "LTR":
+        return True
+
+    return False
+
+def is_line_candidate(f):
+
+    # RT but no LTR hallmarks
+    if (
+        f.rt_present and
+        not f.ltr_present and
+        not f.integrase_present
+    ):
+        return True
+
+    # PolyA + RT-like
+    if f.polyA_present and f.rt_present:
+        return True
+
+    # Homology
+    if f.homology_class == "LINE":
+        return True
+
+    return False
 
 
 def is_dna_tir_candidate(f):
-    return (
-        f.tir_present or
-        f.transposase_present
-    )
 
+    # Structural TIR
+    if f.tir_present:
+        return True
 
-def is_line_candidate(f):
-    return (
-        (
-            f.homology_class == "LINE"
-        )
-        or
-        (
-            f.rt_present and
-            not f.ltr_present and
-            (
-                f.polyA_present or
-                f.homology_class == "LINE"
-            )
-        )
-    )
+    # DDE transposase
+    if f.transposase_present:
+        return True
+
+    # Homology
+    if f.homology_class == "DNA":
+        return True
+
+    return False
 
 
 def is_helitron_candidate(f):
-    return (
-        f.helitron_signal or
-        f.homology_class == "Helitron"
-    )
+
+    if f.helitron_signal:
+        return True
+
+    if f.homology_class == "Helitron":
+        return True
+
+    return False
