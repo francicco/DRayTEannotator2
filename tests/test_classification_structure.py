@@ -57,3 +57,40 @@ def test_evidence_from_structure_candidates(tmp_path):
     assert evidence[0].family_id == "fam_ltr"
     assert evidence[0].evidence_type == "LTR"
     assert evidence[0].source == "structure:LTR"
+
+
+def test_structure_evidence_tsv_io(tmp_path):
+    from drayte.classification.structure import (
+        StructureEvidence,
+        write_structure_evidence_tsv,
+        load_structure_evidence_tsv,
+    )
+
+    out = tmp_path / "structure.tsv"
+
+    evidence = [
+        StructureEvidence(
+            family_id="fam1",
+            evidence_type="LTR",
+            score=0.9,
+            source="ltrharvest",
+        ),
+        StructureEvidence(
+            family_id="fam2",
+            evidence_type="HELITRON",
+            score=0.8,
+            source="heliano",
+        ),
+    ]
+
+    write_structure_evidence_tsv(
+        evidence,
+        out,
+    )
+
+    loaded = load_structure_evidence_tsv(out)
+
+    assert len(loaded) == 2
+    assert loaded[0].family_id == "fam1"
+    assert loaded[0].evidence_type == "LTR"
+    assert loaded[1].evidence_type == "HELITRON"

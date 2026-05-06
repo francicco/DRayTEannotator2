@@ -89,3 +89,60 @@ def evidence_from_structure_candidates(candidates) -> list[StructureEvidence]:
         )
 
     return evidence
+
+
+def load_structure_evidence_tsv(path) -> list[StructureEvidence]:
+    import csv
+
+    evidence = []
+
+    with open(path) as fh:
+        reader = csv.DictReader(fh, delimiter="\t")
+
+        for row in reader:
+
+            evidence_type = normalize_structure_type(
+                row["evidence_type"]
+            )
+
+            if evidence_type is None:
+                continue
+
+            evidence.append(
+                StructureEvidence(
+                    family_id=row["family_id"],
+                    evidence_type=evidence_type,
+                    score=float(row.get("score", 1.0)),
+                    source=row.get("source", "unknown"),
+                )
+            )
+
+    return evidence
+
+
+def write_structure_evidence_tsv(evidence, outpath):
+    import csv
+
+    fields = [
+        "family_id",
+        "evidence_type",
+        "score",
+        "source",
+    ]
+
+    with open(outpath, "w") as out:
+        writer = csv.DictWriter(
+            out,
+            fieldnames=fields,
+            delimiter="\t",
+        )
+
+        writer.writeheader()
+
+        for ev in evidence:
+            writer.writerow({
+                "family_id": ev.family_id,
+                "evidence_type": ev.evidence_type,
+                "score": ev.score,
+                "source": ev.source,
+            })
