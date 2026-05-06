@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from collections import Counter, defaultdict
 
 
 def load_tsv(path):
@@ -24,6 +25,9 @@ def evaluate(expected_rows, predicted_rows):
 
     missing = 0
 
+    class_confusion = Counter()
+    order_confusion = Counter()
+
     for exp in expected_rows:
 
         family_id = exp["family_id"]
@@ -36,22 +40,45 @@ def evaluate(expected_rows, predicted_rows):
 
         total += 1
 
-        if pred["class"] == exp["expected_class"]:
+        exp_class = exp["expected_class"]
+        pred_class = pred["class"]
+
+        exp_order = exp["expected_order"]
+        pred_order = pred["order"]
+
+        class_confusion[(exp_class, pred_class)] += 1
+        order_confusion[(exp_order, pred_order)] += 1
+
+        if pred_class == exp_class:
             class_ok += 1
 
-        if pred["order"] == exp["expected_order"]:
+        if pred_order == exp_order:
             order_ok += 1
 
         if pred["superfamily"] == exp["expected_superfamily"]:
             superfamily_ok += 1
 
     return {
-        "total_compared": total,
-        "missing_predictions": missing,
-        "class_accuracy": class_ok / total if total else 0,
-        "order_accuracy": order_ok / total if total else 0,
-        "superfamily_accuracy": superfamily_ok / total if total else 0,
+        "metrics": {
+            "total_compared": total,
+            "missing_predictions": missing,
+            "class_accuracy": class_ok / total if total else 0,
+            "order_accuracy": order_ok / total if total else 0,
+            "superfamily_accuracy": superfamily_ok / total if total else 0,
+        },
+        "class_confusion": class_confusion,
+        "order_confusion": order_confusion,
     }
+
+
+def print_confusion(title, confusion, top_n=25):
+
+    print()
+    print(f"=== {title} ===")
+    print()
+
+    for (expected, predicted), n in confusion.most_common(top_n):
+        print(f"{n:5d}  expected={expected:<15} predicted={predicted}")
 
 
 def main():
@@ -75,7 +102,9 @@ def main():
     expected = load_tsv(args.expected)
     predicted = load_tsv(args.classifications)
 
-    metrics = evaluate(expected, predicted)
+    results = evaluate(expected, predicted)
+
+    metrics = results["metrics"]
 
     print()
     print("=== DRayTE Classification Evaluation ===")
@@ -87,6 +116,16 @@ def main():
             print(f"{k}: {v:.4f}")
         else:
             print(f"{k}: {v}")
+
+    print_confusion(
+        "Class confusion",
+        results["class_confusion"],
+    )
+
+    print_confusion(
+        "Order confusion",
+        results["order_confusion"],
+    )
 
     print()
 
