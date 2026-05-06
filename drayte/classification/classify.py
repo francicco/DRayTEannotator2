@@ -82,6 +82,9 @@ def classify_family(f):
     if is_helitron_candidate(f):
         candidates.append(("HELITRON", score_helitron(f)))
 
+    if is_sine_candidate(f):
+        candidates.append(("SINE", score_sine(f)))
+
     if not candidates:
         return {
             "class": "Unknown",

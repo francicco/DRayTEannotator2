@@ -9,3 +9,7 @@ __pycache__/
 # Benchmark generated outputs
 benchmarks/**/results/
 classification_domains/
+
+# Benchmark generated outputs
+benchmarks/**/results/
+classification_domains/
