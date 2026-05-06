@@ -31,3 +31,10 @@ def is_line_candidate(f):
             )
         )
     )
+
+
+def is_helitron_candidate(f):
+    return (
+        f.helitron_signal or
+        f.homology_class == "Helitron"
+    )

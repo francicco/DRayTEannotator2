@@ -1,11 +1,25 @@
 from .scoring import score_ltr, score_dna_tir, score_line
 from .rules import is_ltr_candidate, is_dna_tir_candidate, is_line_candidate
 
+from .scoring import (
+    score_ltr,
+    score_dna_tir,
+    score_line,
+    score_helitron,
+)
+
+from .rules import (
+    is_ltr_candidate,
+    is_dna_tir_candidate,
+    is_line_candidate,
+    is_helitron_candidate,
+)
 
 CLASS_MAP = {
     "LTR": ("Class_I", "LTR"),
     "LINE": ("Class_I", "LINE"),
     "DNA_TIR": ("Class_II", "TIR"),
+    "HELITRON": ("Class_II", "Helitron"),
 }
 
 
@@ -61,6 +75,9 @@ def classify_family(f):
 
     if is_dna_tir_candidate(f):
         candidates.append(("DNA_TIR", score_dna_tir(f)))
+
+    if is_helitron_candidate(f):
+        candidates.append(("HELITRON", score_helitron(f)))
 
     if not candidates:
         return {

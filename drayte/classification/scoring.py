@@ -55,3 +55,25 @@ def score_line(f):
         0.20 * polyA +
         0.20 * boundary
     )
+
+
+def score_helitron(f):
+
+    structure = 1.0 if f.helitron_signal else 0.0
+
+    homology = (
+        f.homology_score
+        if f.homology_class == "Helitron"
+        else 0.0
+    )
+
+    boundary = f.boundary_consistency
+
+    annotation = 1.0 - f.fragmentation_score
+
+    return (
+        0.45 * structure +
+        0.30 * homology +
+        0.15 * boundary +
+        0.10 * annotation
+    )
