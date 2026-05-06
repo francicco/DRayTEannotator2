@@ -98,10 +98,19 @@ def classify_family(f):
 
     # High-confidence RepeatMasker-style homology priors should not be
     # overridden by generic protein domains such as DDE or RT-like hits.
-    if f.homology_class in {"Helitron", "SINE"} and f.homology_score >= 0.8:
+    homology_label_map = {
+        "DNA": "DNA_TIR",
+        "Helitron": "HELITRON",
+        "SINE": "SINE",
+        "LTR": "LTR",
+        "LINE": "LINE",
+    }
+
+    if f.homology_score >= 0.8 and f.homology_class in homology_label_map:
+        preferred = homology_label_map[f.homology_class]
         candidates = [
             c for c in candidates
-            if c[0] in {"HELITRON", "SINE"}
+            if c[0] == preferred
         ] or candidates
 
     candidates.sort(key=lambda x: x[1], reverse=True)
