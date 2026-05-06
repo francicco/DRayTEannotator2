@@ -11,7 +11,7 @@ from .ids import clean_family_id
 from .models import Family
 from .orfs import extract_orf_calls_by_family, summarize_orfs
 from .structure import StructureEvidence, summarize_structure_evidence
-
+from .homology import homology_from_repeatmasker_header
 
 def consensus_lengths(input_fasta: str | Path) -> Dict[str, int]:
     return {
@@ -61,17 +61,35 @@ def build_families_from_evidence(
 
         struct = structure_summary.get(family_id, {})
 
+        hom = homology_from_repeatmasker_header(family_id)
+
+        if hom is None:
+            homology_class = "Unknown"
+            homology_superfamily = "Unknown"
+            homology_score = 0.0
+        else:
+            homology_class = hom.homology_class
+            homology_superfamily = hom.homology_superfamily
+            homology_score = hom.homology_score
+
         families.append(
             Family(
                 family_id=family_id,
                 consensus_len=seq_len,
                 n_copies=0,
+
+                homology_class=homology_class,
+                homology_superfamily=homology_superfamily,
+                homology_score=homology_score,
+
                 domains=domains,
+
                 ltr_present=struct.get("ltr_present", False),
                 tir_present=struct.get("tir_present", False),
                 helitron_signal=struct.get("helitron_signal", False),
                 tsd_present=struct.get("tsd_present", False),
                 polyA_present=struct.get("polyA_present", False),
+
                 orf_count=orfs["orf_count"],
                 orf_max_len=orfs["orf_max_len"],
             )
