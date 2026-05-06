@@ -3,6 +3,7 @@ import argparse
 from .classify import classify_family
 from .features import build_families_from_evidence
 from .hmmer import parse_domtblout
+from .pipeline import run_domain_annotation
 from .io import load_families_tsv, write_classification_tsv
 from .structure import load_structure_evidence_tsv
 
@@ -48,6 +49,31 @@ def main():
     )
 
     parser.add_argument(
+        "--hmm-db",
+        help="HMM database for automatic hmmscan",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--hmmscan-bin",
+        help="Path to hmmscan executable",
+        default="hmmscan",
+    )
+
+    parser.add_argument(
+        "--domain-outdir",
+        help="Output directory for ORFs and hmmscan results",
+        default="classification_domains",
+    )
+
+    parser.add_argument(
+        "--cpu",
+        type=int,
+        default=1,
+        help="Number of CPUs for hmmscan",
+    )
+
+    parser.add_argument(
         "--structure-evidence",
         help="Structure evidence TSV",
         default=None,
@@ -89,8 +115,25 @@ def main():
     else:
 
         if args.domtblout:
-            domain_hits = parse_domtblout(args.domtblout)
+
+            domain_hits = parse_domtblout(
+                args.domtblout
+            )
+
+        elif args.hmm_db:
+
+            domain_hits = run_domain_annotation(
+                consensus_fasta=args.fasta,
+                hmm_db=args.hmm_db,
+                outdir=args.domain_outdir,
+                hmmscan_bin=args.hmmscan_bin,
+                min_orf_nt=args.min_orf_nt,
+                include_reverse_orfs=not args.forward_only,
+                cpu=args.cpu,
+            )
+
         else:
+
             domain_hits = []
 
         if args.structure_evidence:
