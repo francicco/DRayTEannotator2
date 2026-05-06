@@ -1,0 +1,56 @@
+from pathlib import Path
+
+from drayte.classification.features import (
+    consensus_lengths,
+    build_families_from_evidence,
+)
+from drayte.classification.hmmer import DomainHit
+
+
+def test_consensus_lengths(tmp_path: Path):
+    fasta = tmp_path / "families.fa"
+    fasta.write_text(">fam1\nATGC\n>fam2\nATGCAA\n")
+
+    lengths = consensus_lengths(fasta)
+
+    assert lengths["fam1"] == 4
+    assert lengths["fam2"] == 6
+
+
+def test_build_families_from_evidence(tmp_path: Path):
+    fasta = tmp_path / "families.fa"
+    fasta.write_text(
+        ">fam1\n"
+        "ATG" + "AAA" * 200 + "TAA" + "\n"
+        ">fam2\n"
+        "ATGAAATAA\n"
+    )
+
+    hits = [
+        DomainHit(
+            family_id="fam1",
+            orf_id="fam1_orf1",
+            domain="RT_domain",
+            accession="PF00078",
+            evalue=1e-50,
+            score=180.0,
+            hmm_start=1,
+            hmm_end=100,
+            ali_start=1,
+            ali_end=100,
+        )
+    ]
+
+    families = build_families_from_evidence(
+        fasta,
+        domain_hits=hits,
+        min_orf_nt=300,
+        include_reverse_orfs=False,
+    )
+
+    by_id = {f.family_id: f for f in families}
+
+    assert by_id["fam1"].consensus_len > 300
+    assert by_id["fam1"].orf_count >= 1
+    assert by_id["fam1"].rt_present
+    assert not by_id["fam2"].rt_present
