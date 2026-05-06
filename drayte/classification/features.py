@@ -7,6 +7,7 @@ from Bio import SeqIO
 
 from .models import Family
 from .orfs import extract_orf_calls_by_family, summarize_orfs
+from .domainmap import normalize_domains
 from .hmmer import DomainHit, summarize_domains_by_family
 
 
@@ -37,7 +38,8 @@ def build_families_from_evidence(
     families = []
 
     for family_id, seq_len in lengths.items():
-        domains = set(domain_summary.get(family_id, {}).get("domains", []))
+        raw_domains = set(domain_summary.get(family_id, {}).get("domains", []))
+        domains = normalize_domains(raw_domains)
         orfs = orf_summary.get(
             family_id,
             {

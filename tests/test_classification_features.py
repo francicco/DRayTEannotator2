@@ -30,7 +30,7 @@ def test_build_families_from_evidence(tmp_path: Path):
         DomainHit(
             family_id="fam1",
             orf_id="fam1_orf1",
-            domain="RT_domain",
+            domain="RVT_1",
             accession="PF00078",
             evalue=1e-50,
             score=180.0,

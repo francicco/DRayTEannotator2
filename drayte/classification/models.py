@@ -2,47 +2,17 @@ from dataclasses import dataclass, field
 from typing import Set
 
 
-RT_DOMAINS = {
-    "RT",
-    "RT_domain",
-    "Reverse_transcriptase",
-    "RVT_1",
-    "RVT_2",
-}
+RT_DOMAINS = {"RT"}
 
-INTEGRASE_DOMAINS = {
-    "INT",
-    "INT_domain",
-    "Integrase",
-    "rve",
-}
+INTEGRASE_DOMAINS = {"INTEGRASE"}
 
-TRANSPOSASE_DOMAINS = {
-    "Transposase",
-    "Transposase_domain",
-    "DDE_Tnp",
-    "hAT",
-    "Tc1",
-    "Mutator",
-}
+TRANSPOSASE_DOMAINS = {"TRANSPOSASE"}
 
-RH_DOMAINS = {
-    "RH",
-    "RNaseH",
-    "RNase_H",
-}
+RH_DOMAINS = {"RNASEH"}
 
-GAG_DOMAINS = {
-    "GAG",
-    "Gag",
-}
+GAG_DOMAINS = {"GAG"}
 
-HELITRON_DOMAINS = {
-    "Helitron",
-    "RepHel",
-    "Rep",
-    "Helicase",
-}
+HELITRON_DOMAINS = {"HELITRON_REP", "HELICASE"}
 
 
 @dataclass

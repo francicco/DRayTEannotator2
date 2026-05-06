@@ -12,9 +12,9 @@ BOOL_FIELDS = {
 }
 
 LEGACY_DOMAIN_BOOL_FIELDS = {
-    "rt_present": "RT_domain",
-    "integrase_present": "INT_domain",
-    "transposase_present": "Transposase_domain",
+    "rt_present": "RT",
+    "integrase_present": "INTEGRASE",
+    "transposase_present": "TRANSPOSASE",
 }
 
 INT_FIELDS = {
