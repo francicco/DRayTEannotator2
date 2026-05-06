@@ -32,3 +32,28 @@ def test_summarize_structure_evidence():
 
     assert summary["fam2"]["helitron_signal"]
     assert "fam3" not in summary
+
+
+def test_evidence_from_structure_candidates(tmp_path):
+    from drayte.structure.models import StructureCandidate
+    from drayte.classification.structure import evidence_from_structure_candidates
+
+    candidates = [
+        StructureCandidate(
+            candidate_id="fam_ltr",
+            module="LTR",
+            contig="ctg1",
+            start=1,
+            end=1000,
+            strand="+",
+            length=1000,
+            fasta_path=tmp_path / "fam_ltr.fa",
+        )
+    ]
+
+    evidence = evidence_from_structure_candidates(candidates)
+
+    assert len(evidence) == 1
+    assert evidence[0].family_id == "fam_ltr"
+    assert evidence[0].evidence_type == "LTR"
+    assert evidence[0].source == "structure:LTR"

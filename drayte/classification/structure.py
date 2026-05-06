@@ -68,3 +68,24 @@ def summarize_structure_evidence(
     for fam in summary.values():
         fam["structure_sources"] = sorted(fam["structure_sources"])
     return summary
+
+
+def evidence_from_structure_candidates(candidates) -> list[StructureEvidence]:
+    evidence: list[StructureEvidence] = []
+
+    for cand in candidates:
+        ev_type = normalize_structure_type(cand.module)
+
+        if ev_type is None:
+            continue
+
+        evidence.append(
+            StructureEvidence(
+                family_id=cand.candidate_id,
+                evidence_type=ev_type,
+                score=1.0,
+                source=f"structure:{cand.module}",
+            )
+        )
+
+    return evidence
