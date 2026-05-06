@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import subprocess
 from dataclasses import dataclass
+
+from .ids import clean_family_id
 from pathlib import Path
 from typing import Dict, List
 
@@ -46,8 +48,8 @@ def run_hmmscan(
 
 def family_from_orf_id(orf_id: str) -> str:
     if "_orf" in orf_id:
-        return orf_id.rsplit("_orf", 1)[0]
-    return orf_id
+        return clean_family_id(orf_id.rsplit("_orf", 1)[0])
+    return clean_family_id(orf_id)
 
 
 def parse_domtblout(
