@@ -122,15 +122,75 @@ def find_extension_files(extension_dir: Path, safe_id: str) -> dict[str, Path]:
     """
     Locate extension-stage evidence files for one family.
 
-    These file names follow the sanitised family ID convention.
-    """
-    final_cons = extension_dir / "final_consensuses"
+    Evidence can be found in:
+      - extension/final_consensuses/
+      - extension/extensionwork/<family>/
+      - extension/images_and_alignments/{likely_TEs,possible_SD,rejects}/
 
-    return {
-        "rep_fa": final_cons / f"{safe_id}_rep.fa",
-        "msa_fa": final_cons / f"{safe_id}_MSA_extended.fa",
-        "png": final_cons / f"{safe_id}.png",
+    The image/alignment folders are important because the final visual
+    outputs are often stored there rather than in final_consensuses.
+    """
+
+    final_cons = extension_dir / "final_consensuses"
+    work_dir = extension_dir / "extensionwork" / safe_id
+
+    image_dirs = [
+        extension_dir / "images_and_alignments" / "likely_TEs",
+        extension_dir / "images_and_alignments" / "possible_SD",
+        extension_dir / "images_and_alignments" / "rejects",
+    ]
+
+    candidates = {
+        "rep_fa": [
+            final_cons / f"{safe_id}_rep.fa",
+            work_dir / f"{safe_id}_rep.fa",
+        ],
+        "msa_fa": [
+            final_cons / f"{safe_id}_MSA_extended.fa",
+            work_dir / f"{safe_id}_MSA_extended.fa",
+            work_dir / "MSA-extended.fa",
+            work_dir / "MSA-extended_with_rmod_cons.fa",
+        ],
+        "png": [
+            final_cons / f"{safe_id}.png",
+            work_dir / f"{safe_id}.png",
+            work_dir / "img.png",
+        ],
     }
+
+    # Add direct expected paths from the final image/alignment categories.
+    for d in image_dirs:
+        candidates["msa_fa"].append(d / f"{safe_id}_MSA_extended.fa")
+        candidates["png"].append(d / f"{safe_id}.png")
+
+    found: dict[str, Path] = {}
+
+    # First pass: exact expected filenames.
+    for label, paths in candidates.items():
+        for path in paths:
+            if path.exists() and path.stat().st_size > 0:
+                found[label] = path
+                break
+
+    # Second pass: glob fallback.
+    # This helps with older files or partially different naming conventions.
+    for d in image_dirs:
+        if not d.exists():
+            continue
+
+        if "msa_fa" not in found:
+            for p in d.glob(f"{safe_id}*_MSA_extended.fa"):
+                if p.exists() and p.stat().st_size > 0:
+                    found["msa_fa"] = p
+                    break
+
+        if "png" not in found:
+            for p in d.glob(f"{safe_id}*.png"):
+                if p.exists() and p.stat().st_size > 0:
+                    found["png"] = p
+                    break
+
+    return found
 
 def is_non_te_repeat(repeat_class: str, family: str = "") -> bool:
     x = f"{repeat_class} {family}".lower()
@@ -202,7 +262,7 @@ def build_family_inspection(
 
         repeat_class = str(fam_df["class"].iloc[0])
 
-		if is_non_te_repeat(repeat_class, family) and not include_non_te_repeats:
+        if is_non_te_repeat(repeat_class, family) and not include_non_te_repeats:
             continue
 	
         category = major_group(repeat_class)

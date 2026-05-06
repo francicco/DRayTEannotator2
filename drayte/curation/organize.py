@@ -46,18 +46,28 @@ def copy_extension_artifacts(
                 logger.warning("Missing extension directory for %s: %s", consname, src_dir)
                 continue
 
+            safe_consname = safe_filename(consname)
+            safe_cons_short = safe_filename(cons_short)
+
             mapping = {
                 f"{safe_cons_short}_rep.fa": te_dirs[group] / f"{safe_consname}_rep.fa",
                 f"{safe_cons_short}_MSA_extended.fa": te_dirs[group] / f"{safe_consname}_MSA_extended.fa",
                 f"{safe_cons_short}.png": te_dirs[group] / f"{safe_consname}.png",
             }
 
+            found_any = False
+            
             for src_name, dst in mapping.items():
                 src = src_dir / src_name
                 if src.exists():
+                    found_any = True
                     if not dst.exists():
                         shutil.copy2(src, dst)
-                else:
-                    logger.warning("Missing expected extension artifact: %s", src)
+            
+            if not found_any:
+                logger.debug(
+                    "No extension artifacts for %s (likely low-copy or skipped)",
+                    consname,
+                )
 
     return te_dirs
