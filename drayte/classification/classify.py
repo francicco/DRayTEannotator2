@@ -6,6 +6,7 @@ from .scoring import (
     score_dna_tir,
     score_line,
     score_helitron,
+    score_sine,
 )
 
 from .rules import (
@@ -13,6 +14,7 @@ from .rules import (
     is_dna_tir_candidate,
     is_line_candidate,
     is_helitron_candidate,
+    is_sine_candidate,
 )
 
 CLASS_MAP = {
@@ -20,6 +22,7 @@ CLASS_MAP = {
     "LINE": ("Class_I", "LINE"),
     "DNA_TIR": ("Class_II", "TIR"),
     "HELITRON": ("Class_II", "Helitron"),
+    "SINE": ("Class_I", "SINE"),
 }
 
 
@@ -89,6 +92,14 @@ def classify_family(f):
             "score": 0.0,
             "evidence": "no_class_rules_passed",
         }
+
+    # High-confidence RepeatMasker-style homology priors should not be
+    # overridden by generic protein domains such as DDE or RT-like hits.
+    if f.homology_class in {"Helitron", "SINE"} and f.homology_score >= 0.8:
+        candidates = [
+            c for c in candidates
+            if c[0] in {"HELITRON", "SINE"}
+        ] or candidates
 
     candidates.sort(key=lambda x: x[1], reverse=True)
     best_label, best_score = candidates[0]

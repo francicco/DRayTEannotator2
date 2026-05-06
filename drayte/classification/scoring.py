@@ -77,3 +77,18 @@ def score_helitron(f):
         0.15 * boundary +
         0.10 * annotation
     )
+
+def score_sine(f):
+    homology = (
+        f.homology_score
+        if f.homology_class == "SINE"
+        else 0.0
+    )
+
+    polyA = 1.0 if f.polyA_present else 0.0
+
+    return (
+        0.80 * homology +
+        0.20 * polyA
+    )
+

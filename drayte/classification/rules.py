@@ -67,3 +67,11 @@ def is_helitron_candidate(f):
         return True
 
     return False
+
+
+def is_sine_candidate(f):
+
+    if f.homology_class == "SINE":
+        return True
+
+    return False
