@@ -1,4 +1,4 @@
-family_id	class	confidence	score	evidence
-fam1	LTR	HIGH	0.935	LTR_structure;RT_domain;Integrase_domain;TSD;homology=LTR:Gypsy:0.8
-fam2	DNA_TIR	HIGH	0.9	TIR_structure;Transposase_domain;TSD;homology=DNA:hAT:0.7
-fam3	LINE	HIGH	0.84	RT_domain;polyA;homology=LINE:L2:0.6
+family_id	class	order	superfamily	status	confidence	score	evidence
+fam1	Class_I	LTR	Gypsy	conflicting_evidence	HIGH	0.935	LTR_structure;RT_domain;Integrase_domain;TSD;homology=LTR:Gypsy:0.8
+fam2	Class_II	TIR	hAT	OK	HIGH	0.9	TIR_structure;Transposase_domain;TSD;homology=DNA:hAT:0.7
+fam3	Class_I	LINE	L2	OK	HIGH	0.84	RT_domain;polyA;homology=LINE:L2:0.6

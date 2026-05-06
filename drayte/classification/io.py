@@ -68,6 +68,9 @@ def write_classification_tsv(results, outpath):
     fields = [
         "family_id",
         "class",
+        "order",
+        "superfamily",
+        "status",
         "confidence",
         "score",
         "evidence",

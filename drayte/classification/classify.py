@@ -2,6 +2,13 @@ from .scoring import score_ltr, score_dna_tir, score_line
 from .rules import is_ltr_candidate, is_dna_tir_candidate, is_line_candidate
 
 
+CLASS_MAP = {
+    "LTR": ("Class_I", "LTR"),
+    "LINE": ("Class_I", "LINE"),
+    "DNA_TIR": ("Class_II", "TIR"),
+}
+
+
 def build_evidence_string(f):
     evidence = []
 
@@ -24,10 +31,23 @@ def build_evidence_string(f):
     if f.homology_class not in {"", "NA", "Unknown", None}:
         evidence.append(f"homology={f.homology_class}:{f.homology_superfamily}:{f.homology_score}")
 
-    if not evidence:
-        return "no_supporting_evidence"
+    return ";".join(evidence) if evidence else "no_supporting_evidence"
 
-    return ";".join(evidence)
+
+def infer_status(candidates, best_score, margin):
+    if not candidates:
+        return "unknown"
+
+    if len(candidates) > 1 and margin < 0.10:
+        return "ambiguous"
+
+    if len(candidates) > 1:
+        return "conflicting_evidence"
+
+    if best_score < 0.50:
+        return "weak_evidence"
+
+    return "OK"
 
 
 def classify_family(f):
@@ -44,14 +64,17 @@ def classify_family(f):
 
     if not candidates:
         return {
-            "class": "Unknown_interspersed",
+            "class": "Unknown",
+            "order": "Unknown",
+            "superfamily": "Unknown",
+            "status": "unknown",
             "confidence": "LOW",
             "score": 0.0,
             "evidence": "no_class_rules_passed",
         }
 
     candidates.sort(key=lambda x: x[1], reverse=True)
-    best_class, best_score = candidates[0]
+    best_label, best_score = candidates[0]
 
     if len(candidates) > 1:
         margin = best_score - candidates[1][1]
@@ -65,8 +88,17 @@ def classify_family(f):
     else:
         conf = "LOW"
 
+    te_class, order = CLASS_MAP[best_label]
+
+    superfamily = f.homology_superfamily
+    if superfamily in {"", "NA", None}:
+        superfamily = "Unknown"
+
     return {
-        "class": best_class,
+        "class": te_class,
+        "order": order,
+        "superfamily": superfamily,
+        "status": infer_status(candidates, best_score, margin),
         "confidence": conf,
         "score": round(best_score, 3),
         "evidence": build_evidence_string(f),
