@@ -4,6 +4,7 @@ from .classify import classify_family
 from .features import build_families_from_evidence
 from .hmmer import parse_domtblout
 from .io import load_families_tsv, write_classification_tsv
+from .structure import load_structure_evidence_tsv
 
 
 def classify_families(families):
@@ -47,6 +48,12 @@ def main():
     )
 
     parser.add_argument(
+        "--structure-evidence",
+        help="Structure evidence TSV",
+        default=None,
+    )
+
+    parser.add_argument(
         "--output",
         required=True,
         help="Output classification TSV"
@@ -86,9 +93,17 @@ def main():
         else:
             domain_hits = []
 
+        if args.structure_evidence:
+            structure_evidence = load_structure_evidence_tsv(
+                args.structure_evidence
+            )
+        else:
+            structure_evidence = []
+
         families = build_families_from_evidence(
             consensus_fasta=args.fasta,
             domain_hits=domain_hits,
+            structure_evidence=structure_evidence,
             min_orf_nt=args.min_orf_nt,
             include_reverse_orfs=not args.forward_only,
         )
