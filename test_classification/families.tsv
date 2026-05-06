@@ -1,0 +1,4 @@
+family_id	consensus_len	n_copies	homology_class	homology_superfamily	homology_score	rt_present	integrase_present	transposase_present	ltr_present	tir_present	helitron_signal	tsd_present	polyA_present	orf_count	orf_max_len	boundary_consistency	fragmentation_score
+fam1	6000	20	LTR	Gypsy	0.8	True	True	False	True	False	False	True	False	2	3000	0.9	0.1
+fam2	2500	15	DNA	hAT	0.7	False	False	True	False	True	False	True	False	1	900	0.8	0.2
+fam3	5000	8	LINE	L2	0.6	True	False	False	False	False	False	False	True	1	2500	0.7	0.3
