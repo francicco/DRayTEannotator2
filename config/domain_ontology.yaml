@@ -1,0 +1,64 @@
+RT:
+  aliases:
+    - RT
+    - RT_domain
+    - RVT
+    - RVT_1
+    - RVT_2
+    - Reverse_transcriptase
+    - Reverse-transcriptase
+    - retropepsin
+
+INTEGRASE:
+  aliases:
+    - INT
+    - INT_domain
+    - Integrase
+    - Retroviral_integrase
+    - rve
+
+RNASEH:
+  aliases:
+    - RNaseH
+    - RNase_H
+    - RH
+    - RH_domain
+
+GAG:
+  aliases:
+    - GAG
+    - Gag
+    - gag
+
+ENV:
+  aliases:
+    - ENV
+    - Env
+    - envelope
+
+TRANSPOSASE:
+  aliases:
+    - Transposase
+    - Transposase_domain
+    - DDE
+    - DDE_Tnp
+    - DDE_Tnp_1
+    - hAT
+    - Tc1
+    - Mariner
+    - Mutator
+    - piggyBac
+    - PIF
+
+HELITRON_REP:
+  aliases:
+    - Helitron
+    - RepHel
+    - Replicase
+    - Rolling_circle
+
+HELICASE:
+  aliases:
+    - Helicase
+    - DEXDc
+    - HELICc

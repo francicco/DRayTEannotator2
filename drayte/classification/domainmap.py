@@ -1,76 +1,61 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Iterable, Set
 
-
-DOMAIN_PATTERNS = {
-    "RT": [
-        r"^RT$",
-        r"RT_domain",
-        r"Reverse[_ -]?transcriptase",
-        r"RVT",
-        r"retropepsin",
-    ],
-    "INTEGRASE": [
-        r"^INT$",
-        r"INT_domain",
-        r"Integrase",
-        r"rve",
-    ],
-    "RNASEH": [
-        r"RNase[_ -]?H",
-        r"RNaseH",
-        r"RH_domain",
-    ],
-    "GAG": [
-        r"^GAG$",
-        r"^Gag$",
-        r"gag",
-    ],
-    "ENV": [
-        r"^ENV$",
-        r"^Env$",
-        r"envelope",
-    ],
-    "TRANSPOSASE": [
-        r"Transposase",
-        r"DDE",
-        r"DDE_Tnp",
-        r"hAT",
-        r"Tc1",
-        r"Mutator",
-        r"Mariner",
-        r"piggyBac",
-        r"PIF",
-    ],
-    "HELITRON_REP": [
-        r"Helitron",
-        r"RepHel",
-        r"Replicase",
-        r"Rolling[_ -]?circle",
-    ],
-    "HELICASE": [
-        r"Helicase",
-        r"DEXDc",
-        r"HELICc",
-    ],
-}
+import yaml
 
 
-def normalize_domain_name(domain: str) -> str | None:
-    for normalized, patterns in DOMAIN_PATTERNS.items():
-        for pattern in patterns:
+DEFAULT_ONTOLOGY = (
+    Path(__file__).resolve().parents[2]
+    / "config"
+    / "domain_ontology.yaml"
+)
+
+
+@lru_cache(maxsize=1)
+def load_domain_ontology(path: str | Path | None = None):
+    ontology_path = Path(path) if path else DEFAULT_ONTOLOGY
+
+    with open(ontology_path) as fh:
+        return yaml.safe_load(fh)
+
+
+def normalize_domain_name(
+    domain: str,
+    ontology_path: str | Path | None = None,
+) -> str | None:
+
+    ontology = load_domain_ontology(ontology_path)
+
+    for normalized, config in ontology.items():
+
+        for alias in config.get("aliases", []):
+
+            pattern = re.escape(alias)
+
             if re.search(pattern, domain, flags=re.IGNORECASE):
                 return normalized
+
     return None
 
 
-def normalize_domains(domains: Iterable[str]) -> Set[str]:
+def normalize_domains(
+    domains: Iterable[str],
+    ontology_path: str | Path | None = None,
+) -> Set[str]:
+
     normalized = set()
 
     for domain in domains:
-        value = normalize_domain_name(domain)
+
+        value = normalize_domain_name(
+            domain,
+            ontology_path=ontology_path,
+        )
+
         if value:
             normalized.add(value)
 
