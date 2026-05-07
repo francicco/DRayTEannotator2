@@ -1,10 +1,11 @@
 import argparse
 
 from .classify import classify_family
+from .dfam import parse_nhmmer_tblout, run_nhmmer
 from .features import build_families_from_evidence
 from .hmmer import parse_domtblout
 from .pipeline import run_domain_annotation
-from .io import load_families_tsv, write_classification_tsv
+from .io import load_families_tsv, write_classification_tsv, write_evidence_tsv
 from .structure import load_structure_evidence_tsv
 
 
@@ -80,9 +81,39 @@ def main():
     )
 
     parser.add_argument(
+        "--dfam-db",
+        help="Dfam nucleotide HMM database for nhmmer",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--dfam-tblout",
+        help="Existing nhmmer tblout file to reuse",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--dfam-outdir",
+        help="Output directory for Dfam nhmmer results",
+        default="classification_dfam",
+    )
+
+    parser.add_argument(
+        "--nhmmer-bin",
+        help="Path to nhmmer executable",
+        default="nhmmer",
+    )
+
+    parser.add_argument(
         "--output",
         required=True,
         help="Output classification TSV"
+    )
+
+    parser.add_argument(
+        "--evidence-output",
+        help="Optional output TSV with detailed per-family evidence",
+        default=None,
     )
 
     parser.add_argument(
@@ -143,9 +174,34 @@ def main():
         else:
             structure_evidence = []
 
+        if args.dfam_tblout:
+            dfam_hits = parse_nhmmer_tblout(args.dfam_tblout)
+
+        elif args.dfam_db:
+            from pathlib import Path
+
+            dfam_tblout = (
+                Path(args.dfam_outdir)
+                / "dfam.tblout"
+            )
+
+            run_nhmmer(
+                dfam_db=args.dfam_db,
+                consensus_fasta=args.fasta,
+                tblout=dfam_tblout,
+                nhmmer_bin=args.nhmmer_bin,
+                cpu=args.cpu,
+            )
+
+            dfam_hits = parse_nhmmer_tblout(dfam_tblout)
+
+        else:
+            dfam_hits = []
+
         families = build_families_from_evidence(
             consensus_fasta=args.fasta,
             domain_hits=domain_hits,
+            dfam_hits=dfam_hits,
             structure_evidence=structure_evidence,
             min_orf_nt=args.min_orf_nt,
             include_reverse_orfs=not args.forward_only,
@@ -157,6 +213,13 @@ def main():
         results,
         args.output
     )
+
+    if args.evidence_output:
+        write_evidence_tsv(
+            families,
+            results,
+            args.evidence_output,
+        )
 
     print(f"Classified {len(results)} families")
 

@@ -106,3 +106,74 @@ def write_classification_tsv(results, outpath):
 
         for row in results:
             writer.writerow(row)
+
+
+def write_evidence_tsv(families, results, outpath):
+    result_by_id = {
+        row["family_id"]: row
+        for row in results
+    }
+
+    fields = [
+        "family_id",
+        "final_class",
+        "final_order",
+        "final_superfamily",
+        "status",
+        "confidence",
+        "score",
+        "homology_class",
+        "homology_superfamily",
+        "homology_score",
+        "dfam_model",
+        "dfam_order",
+        "dfam_superfamily",
+        "dfam_score",
+        "domains",
+        "ltr_present",
+        "tir_present",
+        "helitron_signal",
+        "tsd_present",
+        "polyA_present",
+        "orf_count",
+        "orf_max_len",
+        "evidence",
+    ]
+
+    with open(outpath, "w") as out:
+        writer = csv.DictWriter(
+            out,
+            fieldnames=fields,
+            delimiter="\t",
+        )
+
+        writer.writeheader()
+
+        for f in families:
+            result = result_by_id[f.family_id]
+
+            writer.writerow({
+                "family_id": f.family_id,
+                "final_class": result["class"],
+                "final_order": result["order"],
+                "final_superfamily": result["superfamily"],
+                "status": result["status"],
+                "confidence": result["confidence"],
+                "score": result["score"],
+                "homology_class": f.homology_class,
+                "homology_superfamily": f.homology_superfamily,
+                "homology_score": f.homology_score,
+                "dfam_model": f.dfam_model or "",
+                "dfam_order": f.dfam_order or "",
+                "dfam_superfamily": f.dfam_superfamily or "",
+                "dfam_score": f.dfam_score,
+                "domains": ";".join(sorted(f.domains)),
+                "ltr_present": f.ltr_present,
+                "tir_present": f.tir_present,
+                "helitron_signal": f.helitron_signal,
+                "tsd_present": f.tsd_present,
+                "polyA_present": f.polyA_present,
+                "orf_count": f.orf_count,
+                "orf_max_len": f.orf_max_len,
+                "evidence": result["evidence"],
+            })
