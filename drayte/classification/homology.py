@@ -9,17 +9,32 @@ from .parsers.repeatmasker import parse_repeatmasker_header
 class HomologyEvidence:
     family_id: str
     homology_class: str
+    homology_order: str
     homology_superfamily: str
     homology_score: float
 
 
-CLASS_NORMALIZATION = {
-    "RC": "Helitron",
-}
+def infer_te_class_from_rm_class(rm_class: str) -> str:
+    if rm_class in {"LINE", "LTR", "SINE"}:
+        return "Class_I"
+
+    if rm_class in {"DNA", "RC", "Helitron"}:
+        return "Class_II"
+
+    return "Unknown"
 
 
-def normalize_homology_class(name: str) -> str:
-    return CLASS_NORMALIZATION.get(name, name)
+def infer_order_from_rm_class(rm_class: str) -> str:
+    if rm_class == "DNA":
+        return "TIR"
+
+    if rm_class in {"RC", "Helitron"}:
+        return "Helitron"
+
+    if rm_class in {"LINE", "LTR", "SINE"}:
+        return rm_class
+
+    return "Unknown"
 
 
 def homology_from_repeatmasker_header(
@@ -34,9 +49,8 @@ def homology_from_repeatmasker_header(
 
     return HomologyEvidence(
         family_id=parsed.family_id,
-        homology_class=normalize_homology_class(
-            parsed.rm_class
-        ),
+        homology_class=infer_te_class_from_rm_class(parsed.rm_class),
+        homology_order=infer_order_from_rm_class(parsed.rm_class),
         homology_superfamily=parsed.rm_superfamily,
         homology_score=score,
     )

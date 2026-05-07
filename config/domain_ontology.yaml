@@ -8,6 +8,7 @@ RT:
     - Reverse_transcriptase
     - Reverse-transcriptase
     - retropepsin
+  order: RETRO
 
 INTEGRASE:
   aliases:
@@ -16,6 +17,7 @@ INTEGRASE:
     - Integrase
     - Retroviral_integrase
     - rve
+  order: LTR
 
 RNASEH:
   aliases:
@@ -23,18 +25,21 @@ RNASEH:
     - RNase_H
     - RH
     - RH_domain
+  order: RETRO
 
 GAG:
   aliases:
     - GAG
     - Gag
     - gag
+  order: LTR
 
 ENV:
   aliases:
     - ENV
     - Env
     - envelope
+  order: RETRO
 
 TRANSPOSASE:
   aliases:
@@ -47,8 +52,39 @@ TRANSPOSASE:
     - Tc1
     - Mariner
     - Mutator
-    - piggyBac
     - PIF
+  order: TIR
+
+PIGGYBAC:
+  aliases:
+    - PiggyBac
+    - piggyBac
+  order: TIR
+  superfamily: PiggyBac
+
+MUTATOR:
+  aliases:
+    - MULE
+    - Mutator
+  order: TIR
+  superfamily: Mutator
+
+PIF_HARBINGER:
+  aliases:
+    - PIF
+    - Harbinger
+  order: TIR
+  superfamily: PIF-Harbinger
+
+TCMAR:
+  aliases:
+    - Tc1
+    - Mariner
+    - TcMar
+    - Transposase_21
+    - HTH_Tnp_Tc5
+  order: TIR
+  superfamily: TcMar
 
 HELITRON_REP:
   aliases:
@@ -56,9 +92,12 @@ HELITRON_REP:
     - RepHel
     - Replicase
     - Rolling_circle
+  order: Helitron
+  superfamily: Helitron
 
 HELICASE:
   aliases:
     - Helicase
     - DEXDc
     - HELICc
+  order: Helitron

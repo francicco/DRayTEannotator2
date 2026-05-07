@@ -22,10 +22,14 @@ INT_FIELDS = {
     "n_copies",
     "orf_count",
     "orf_max_len",
+    "rescue_aln_len",
 }
 
 FLOAT_FIELDS = {
     "homology_score",
+    "dfam_score",
+    "rescue_identity",
+    "rescue_bits",
     "boundary_consistency",
     "fragmentation_score",
 }
@@ -69,10 +73,10 @@ def load_families_tsv(path):
                     clean[k] = parse_bool(v)
 
                 elif k in INT_FIELDS:
-                    clean[k] = int(v)
+                    clean[k] = int(v) if v not in {"", None} else 0
 
                 elif k in FLOAT_FIELDS:
-                    clean[k] = float(v)
+                    clean[k] = float(v) if v not in {"", None} else 0.0
 
                 else:
                     clean[k] = v
@@ -126,12 +130,20 @@ def write_evidence_tsv(families, results, outpath):
         "header_class",
         "header_superfamily",
         "homology_class",
+        "homology_order",
         "homology_superfamily",
         "homology_score",
         "dfam_model",
         "dfam_order",
         "dfam_superfamily",
         "dfam_score",
+        "rescue_class",
+        "rescue_order",
+        "rescue_superfamily",
+        "rescue_identity",
+        "rescue_aln_len",
+        "rescue_bits",
+        "rescue_target",
         "domains",
         "ltr_present",
         "tir_present",
@@ -167,12 +179,20 @@ def write_evidence_tsv(families, results, outpath):
                 "header_class": f.header_class,
                 "header_superfamily": f.header_superfamily,
                 "homology_class": f.homology_class,
+                "homology_order": f.homology_order,
                 "homology_superfamily": f.homology_superfamily,
                 "homology_score": f.homology_score,
                 "dfam_model": f.dfam_model or "",
                 "dfam_order": f.dfam_order or "",
                 "dfam_superfamily": f.dfam_superfamily or "",
                 "dfam_score": f.dfam_score,
+                "rescue_class": f.rescue_class,
+                "rescue_order": f.rescue_order,
+                "rescue_superfamily": f.rescue_superfamily,
+                "rescue_identity": f.rescue_identity,
+                "rescue_aln_len": f.rescue_aln_len,
+                "rescue_bits": f.rescue_bits,
+                "rescue_target": f.rescue_target,
                 "domains": ";".join(sorted(f.domains)),
                 "ltr_present": f.ltr_present,
                 "tir_present": f.tir_present,

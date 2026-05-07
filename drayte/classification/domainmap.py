@@ -60,3 +60,55 @@ def normalize_domains(
             normalized.add(value)
 
     return normalized
+
+
+def infer_orders_from_domains(
+    domains: Iterable[str],
+    ontology_path: str | Path | None = None,
+) -> Set[str]:
+
+    ontology = load_domain_ontology(ontology_path)
+    orders = set()
+
+    for domain in domains:
+        normalized = normalize_domain_name(
+            domain,
+            ontology_path=ontology_path,
+        )
+
+        if normalized is None:
+            normalized = domain
+
+        config = ontology.get(normalized, {})
+        order = config.get("order")
+
+        if order:
+            orders.add(order)
+
+    return orders
+
+
+def infer_superfamilies_from_domains(
+    domains: Iterable[str],
+    ontology_path: str | Path | None = None,
+) -> Set[str]:
+
+    ontology = load_domain_ontology(ontology_path)
+    superfamilies = set()
+
+    for domain in domains:
+        normalized = normalize_domain_name(
+            domain,
+            ontology_path=ontology_path,
+        )
+
+        if normalized is None:
+            normalized = domain
+
+        config = ontology.get(normalized, {})
+        superfamily = config.get("superfamily")
+
+        if superfamily:
+            superfamilies.add(superfamily)
+
+    return superfamilies

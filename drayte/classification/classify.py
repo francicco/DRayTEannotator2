@@ -1,5 +1,3 @@
-from .scoring import score_ltr, score_dna_tir, score_line
-from .rules import is_ltr_candidate, is_dna_tir_candidate, is_line_candidate
 
 from .scoring import (
     score_ltr,
@@ -25,6 +23,14 @@ CLASS_MAP = {
     "SINE": ("Class_I", "SINE"),
 }
 
+rescue_label_map = {
+    "DNA": "DNA_TIR",
+    "TIR": "DNA_TIR",
+    "Helitron": "HELITRON",
+    "LINE": "LINE",
+    "LTR": "LTR",
+    "SINE": "SINE",
+}
 
 def build_evidence_string(f):
     evidence = []
@@ -46,16 +52,15 @@ def build_evidence_string(f):
     if f.polyA_present:
         evidence.append("polyA")
 
-    if f.homology_superfamily not in {"", "NA", "Unknown", None} and f.homology_score >= 0.8:
-        superfamily = f.homology_superfamily
-    elif f.dfam_superfamily not in {"", "NA", "Unknown", None}:
-        superfamily = f.dfam_superfamily
-    else:
-        superfamily = "Unknown"
-
     if f.dfam_model:
         evidence.append(
             f"dfam={f.dfam_model}:{f.dfam_order}:{f.dfam_superfamily}:{f.dfam_score}"
+        )
+
+    if f.rescue_superfamily not in {"", "NA", "Unknown", None}:
+        evidence.append(
+            f"rescue={f.rescue_target}:{f.rescue_order}:{f.rescue_superfamily}:"
+            f"id={f.rescue_identity}:len={f.rescue_aln_len}:bits={f.rescue_bits}"
         )
 
     return ";".join(evidence) if evidence else "no_supporting_evidence"
@@ -84,6 +89,38 @@ def collapse_candidates(candidates):
             best[label] = score
 
     return list(best.items())
+
+def count_supporting_evidence(f, best_label):
+    support = 0
+
+    if f.dfam_order not in {"", "Unknown", None}:
+        support += 1
+
+    if best_label == "LTR" and f.ltr_present:
+        support += 1
+
+    if best_label == "DNA_TIR" and f.tir_present:
+        support += 1
+
+    if best_label == "HELITRON" and f.helitron_signal:
+        support += 1
+
+    if best_label in {"LINE", "LTR"} and f.rt_present:
+        support += 1
+
+    if best_label == "LTR" and f.integrase_present:
+        support += 1
+
+    if best_label == "DNA_TIR" and f.transposase_present:
+        support += 1
+
+    if f.rescue_order not in {"", "Unknown", None}:
+        support += 1
+
+    if f.homology_order not in {"", "Unknown", None} and f.homology_score >= 0.8:
+        support += 1
+
+    return support
 
 def classify_family(f):
     candidates = []
@@ -114,6 +151,26 @@ def classify_family(f):
 
     if is_sine_candidate(f):
         candidates.append(("SINE", score_sine(f)))
+
+    rescue_candidates = []
+
+    rescue_label = rescue_label_map.get(
+        f.rescue_order
+    )
+
+    if (
+        rescue_label is not None
+        and f.rescue_identity >= 0.85
+    ):
+        rescue_candidates.append(
+            (
+                rescue_label,
+                min(0.75, f.rescue_identity),
+            )
+        )
+
+    if not candidates and rescue_candidates:
+        candidates = rescue_candidates
 
     if not candidates:
         return {
@@ -153,12 +210,18 @@ def classify_family(f):
     else:
         margin = best_score
 
-    if best_score >= 0.80 and margin >= 0.15:
+    support_count = count_supporting_evidence(f, best_label)
+
+    if (
+        best_score >= 0.80
+        and margin >= 0.15
+        and support_count >= 2
+    ):
         conf = "HIGH"
     elif best_score >= 0.60 and margin >= 0.10:
         conf = "MEDIUM"
     else:
-        conf = "LOW"
+        conf = "LOW"        
 
     te_class, order = CLASS_MAP[best_label]
 
@@ -166,6 +229,8 @@ def classify_family(f):
         superfamily = f.homology_superfamily
     elif f.dfam_superfamily not in {"", "NA", "Unknown", None}:
         superfamily = f.dfam_superfamily
+    elif f.rescue_superfamily not in {"", "NA", "Unknown", None}:
+        superfamily = f.rescue_superfamily
     else:
         superfamily = "Unknown"
 

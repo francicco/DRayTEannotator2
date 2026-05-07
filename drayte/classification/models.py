@@ -26,6 +26,7 @@ class Family:
     header_superfamily: str = "Unknown"
 
     homology_class: str = "Unknown"
+    homology_order: str = "Unknown"
     homology_superfamily: str = "Unknown"
     homology_score: float = 0.0
 
@@ -34,6 +35,14 @@ class Family:
     dfam_superfamily: str | None = None
     dfam_model: str | None = None
     dfam_score: float = 0.0
+
+    rescue_class: str = "Unknown"
+    rescue_order: str = "Unknown"
+    rescue_superfamily: str = "Unknown"
+    rescue_identity: float = 0.0
+    rescue_aln_len: int = 0
+    rescue_bits: float = 0.0
+    rescue_target: str = ""
 
     domains: Set[str] = field(default_factory=set)
 

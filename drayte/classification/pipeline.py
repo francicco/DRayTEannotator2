@@ -5,7 +5,9 @@ from pathlib import Path
 from .hmmer import (
     parse_domtblout,
     run_hmmscan,
+    run_hmmscan_parallel_chunks,
 )
+
 from .orfs import write_translated_orfs
 
 
@@ -17,6 +19,8 @@ def run_domain_annotation(
     min_orf_nt: int = 500,
     include_reverse_orfs: bool = True,
     cpu: int = 1,
+    chunks: int = 0,
+    max_parallel: int | None = None,
 ):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -39,13 +43,24 @@ def run_domain_annotation(
     # hmmscan
     #
 
-    run_hmmscan(
-        hmm_db=hmm_db,
-        proteins_fasta=orf_fasta,
-        domtblout=domtblout,
-        hmmscan_bin=hmmscan_bin,
-        cpu=cpu,
-    )
+    if chunks and chunks > 1:
+        domtblout = run_hmmscan_parallel_chunks(
+            proteins_fasta=orf_fasta,
+            hmm_db=hmm_db,
+            outdir=outdir,
+            chunks=chunks,
+            hmmscan_bin=hmmscan_bin,
+            cpu_per_job=cpu,
+            max_parallel=max_parallel,
+        )
+    else:
+        run_hmmscan(
+            hmm_db=hmm_db,
+            proteins_fasta=orf_fasta,
+            domtblout=domtblout,
+            hmmscan_bin=hmmscan_bin,
+            cpu=cpu,
+        ) 
 
     #
     # parse

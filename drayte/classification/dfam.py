@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
+
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+
 from typing import List
 
 from .ids import clean_family_id
@@ -29,6 +34,17 @@ def run_nhmmer(
     tblout = Path(tblout)
     tblout.parent.mkdir(parents=True, exist_ok=True)
 
+    pid = os.getpid()
+    start = datetime.now()
+
+    print(
+        f"[DRayTE][Dfam] START "
+        f"chunk={consensus_fasta} "
+        f"time={start.isoformat(timespec='seconds')}",
+        file=sys.stderr,
+        flush=True,
+    )
+
     cmd = [
         nhmmer_bin,
         "--cpu", str(cpu),
@@ -39,6 +55,17 @@ def run_nhmmer(
 
     with open(tblout.with_suffix(".log"), "w") as log:
         subprocess.run(cmd, check=True, stdout=log, stderr=log)
+
+    end = datetime.now()
+
+    print(
+        f"[DRayTE][Dfam] END "
+        f"chunk={consensus_fasta} "
+        f"elapsed={(end-start).total_seconds():.1f}s "
+        f"time={end.isoformat(timespec='seconds')}",
+        file=sys.stderr,
+        flush=True,
+    )
 
     return tblout
 
