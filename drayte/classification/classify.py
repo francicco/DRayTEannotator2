@@ -45,8 +45,18 @@ def build_evidence_string(f):
         evidence.append("TSD")
     if f.polyA_present:
         evidence.append("polyA")
-    if f.homology_class not in {"", "NA", "Unknown", None}:
-        evidence.append(f"homology={f.homology_class}:{f.homology_superfamily}:{f.homology_score}")
+
+    if f.homology_superfamily not in {"", "NA", "Unknown", None} and f.homology_score >= 0.8:
+        superfamily = f.homology_superfamily
+    elif f.dfam_superfamily not in {"", "NA", "Unknown", None}:
+        superfamily = f.dfam_superfamily
+    else:
+        superfamily = "Unknown"
+
+    if f.dfam_model:
+        evidence.append(
+            f"dfam={f.dfam_model}:{f.dfam_order}:{f.dfam_superfamily}:{f.dfam_score}"
+        )
 
     return ";".join(evidence) if evidence else "no_supporting_evidence"
 
@@ -66,21 +76,29 @@ def infer_status(candidates, best_score, margin):
 
     return "OK"
 
+def collapse_candidates(candidates):
+    best = {}
+
+    for label, score in candidates:
+        if label not in best or score > best[label]:
+            best[label] = score
+
+    return list(best.items())
 
 def classify_family(f):
     candidates = []
 
     if f.dfam_order == "LTR":
-        candidates.append(("LTR", max(0.85, f.dfam_score / 50.0)))
+        candidates.append(("LTR", min(0.99, max(0.85, f.dfam_score / 100.0))))
     
     if f.dfam_order == "LINE":
-        candidates.append(("LINE", max(0.85, f.dfam_score / 50.0)))
+        candidates.append(("LINE", min(0.99, max(0.85, f.dfam_score / 100.0))))
     
     if f.dfam_order == "TIR":
-        candidates.append(("DNA_TIR", max(0.85, f.dfam_score / 50.0)))
+        candidates.append(("DNA_TIR", min(0.99, max(0.85, f.dfam_score / 100.0))))
     
     if f.dfam_order == "Helitron":
-        candidates.append(("HELITRON", max(0.90, f.dfam_score / 50.0)))
+        candidates.append(("HELITRON", min(0.99, max(0.90, f.dfam_score / 100.0))))
 
     if is_ltr_candidate(f):
         candidates.append(("LTR", score_ltr(f)))
@@ -125,6 +143,8 @@ def classify_family(f):
             if c[0] == preferred
         ] or candidates
 
+    candidates = collapse_candidates(candidates)
+
     candidates.sort(key=lambda x: x[1], reverse=True)
     best_label, best_score = candidates[0]
 
@@ -142,17 +162,14 @@ def classify_family(f):
 
     te_class, order = CLASS_MAP[best_label]
 
-    if f.dfam_superfamily not in {"", "NA", "Unknown", None}:
+    if (
+        f.homology_superfamily not in {"", "NA", "Unknown", None}
+        and f.homology_score >= 0.8
+    ):
+        superfamily = f.homology_superfamily
+    elif f.dfam_superfamily not in {"", "NA", "Unknown", None}:
         superfamily = f.dfam_superfamily
     else:
-        superfamily = f.homology_superfamily
-
-    if f.dfam_model:
-        evidence.append(
-            f"dfam={f.dfam_model}:{f.dfam_order}:{f.dfam_superfamily}:{f.dfam_score}"
-        )
-
-    if superfamily in {"", "NA", None}:
         superfamily = "Unknown"
 
     return {
