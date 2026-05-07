@@ -10,6 +10,10 @@ from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from Bio import SeqIO
 
+from datetime import datetime
+import os
+import sys
+
 @dataclass
 class DomainHit:
     family_id: str
@@ -113,12 +117,38 @@ def run_hmmscan_parallel_chunks(
     def _run_one(chunk_fasta: Path) -> Path:
         domtblout = scan_dir / f"{chunk_fasta.stem}.domtblout"
 
+        start = datetime.now()
+        pid = os.getpid()
+
+        n_seqs = sum(
+            1 for _ in SeqIO.parse(str(chunk_fasta), "fasta")
+        )
+
+        print(
+            f"[DRayTE][Pfam] START chunk={chunk_fasta.stem} "
+            f"seqs={n_seqs} pid={pid} "
+            f"time={start.isoformat(timespec='seconds')}",
+            file=sys.stderr,
+            flush=True,
+        )
+
         return run_hmmscan(
             hmm_db=hmm_db,
             proteins_fasta=chunk_fasta,
             domtblout=domtblout,
             hmmscan_bin=hmmscan_bin,
             cpu=cpu_per_job,
+        )
+
+        end = datetime.now()
+        elapsed = end - start
+
+        print(
+            f"[DRayTE][Pfam] END chunk={chunk_fasta.stem} "
+            f"elapsed={elapsed} "
+            f"time={end.isoformat(timespec='seconds')}",
+            file=sys.stderr,
+            flush=True,
         )
 
     domtblouts = []

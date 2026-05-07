@@ -1,5 +1,6 @@
 import argparse
 
+from pathlib import Path
 from .classify import classify_family
 from .features import build_families_from_evidence
 from .hmmer import parse_domtblout
@@ -207,6 +208,21 @@ def main():
         help="Number of CPUs for hmmscan/nhmmer/MMseqs steps",
     )
     args = parser.parse_args()
+
+    def require_db_for_missing_cache(
+        evidence_name: str,
+        cache_path,
+        db_path,
+    ):
+
+        if db_path:
+            return
+    
+        raise FileNotFoundError(
+            f"{evidence_name} cache not found: {cache_path}. "
+            f"Provide the corresponding database path to generate it automatically."
+        )
+
     log_step("Starting classification")
     #
     # TSV mode
@@ -230,12 +246,38 @@ def main():
 
         log_step(f"Loaded sequence lengths for {len(query_lengths)} families")
 
-        if args.pfam_domtblout:
-            log_step(f"Parsing domain hits: {args.pfam_domtblout}")
-            domain_hits = parse_domtblout(args.pfam_domtblout)
-            log_step(f"Parsed {len(domain_hits)} domain hits")
-        elif args.pfam_db:
-            log_step(f"Running hmmscan against {args.pfam_db}")
+        default_pfam_domtblout = (
+            Path(args.pfam_outdir)
+            / "domains.domtblout"
+        )
+
+        pfam_domtblout = (
+            Path(args.pfam_domtblout)
+            if args.pfam_domtblout
+            else default_pfam_domtblout
+        )
+
+        if pfam_domtblout.exists():
+            log_step(
+                f"Parsing cached protein-domain domtblout: {pfam_domtblout}"
+            )
+            domain_hits = parse_domtblout(pfam_domtblout)
+            log_step(f"Parsed {len(domain_hits)} protein-domain hits")
+
+        elif args.pfam_domtblout or args.pfam_db:
+            require_db_for_missing_cache(
+                "Protein-domain",
+                pfam_domtblout,
+                args.pfam_db,
+            )
+
+            log_step(
+                f"No cached protein-domain domtblout found at {pfam_domtblout}"
+            )
+            log_step(
+                f"Running hmmscan against protein HMM database: {args.pfam_db}"
+            )
+
             domain_hits = run_domain_annotation(
                 consensus_fasta=args.fasta,
                 hmm_db=args.pfam_db,
@@ -247,7 +289,9 @@ def main():
                 chunks=args.chunks,
                 max_parallel=args.jobs,
             )
-            log_step(f"Detected {len(domain_hits)} domain hits")
+
+            log_step(f"Detected {len(domain_hits)} protein-domain hits")
+
         else:
             log_step("No protein-domain evidence provided")
             domain_hits = []
@@ -260,36 +304,48 @@ def main():
             log_step("No structure evidence provided")
             structure_evidence = []
 
-        if args.dfam_tblout:
-            log_step(f"Parsing Dfam nhmmer tblout: {args.dfam_tblout}")
-            dfam_hits = parse_nhmmer_tblout(args.dfam_tblout)
-            log_step(f"Parsed {len(dfam_hits)} Dfam hits")
-        elif args.dfam_db:
-            from pathlib import Path
+        default_dfam_tblout = (
+            Path(args.dfam_outdir)
+            / "dfam.merged.tblout"
+        )
 
-            dfam_tblout = (
-                Path(args.dfam_outdir)
-                / "dfam.tblout"
+        dfam_tblout = (
+            Path(args.dfam_tblout)
+            if args.dfam_tblout
+            else default_dfam_tblout
+        )
+
+        if dfam_tblout.exists():
+            log_step(f"Parsing cached Dfam tblout: {dfam_tblout}")
+            dfam_hits = parse_nhmmer_tblout(dfam_tblout)
+            log_step(f"Parsed {len(dfam_hits)} Dfam hits")
+
+        elif args.dfam_tblout or args.dfam_db:
+            require_db_for_missing_cache(
+                "Dfam",
+                dfam_tblout,
+                args.dfam_db,
+            )
+
+            log_step(
+                f"No cached Dfam tblout found at {dfam_tblout}"
+            )
+            log_step(
+                f"Running nhmmer against Dfam database: {args.dfam_db}"
             )
 
             if args.chunks and args.chunks > 1:
-                log_step(
-                    f"Running chunked nhmmer: chunks={args.chunks}, "
-                    f"cpu_per_job={args.cpu}, max_parallel={args.jobs}"
-                )
-                dfam_tblout = run_nhmmer_parallel_chunks(
+                generated_tblout = run_nhmmer_parallel_chunks(
                     dfam_db=args.dfam_db,
                     consensus_fasta=args.fasta,
                     outdir=args.dfam_outdir,
-                    chunks=args.dfam_chunks,
+                    chunks=args.chunks,
                     nhmmer_bin=args.nhmmer_bin,
                     cpu_per_job=args.cpu,
                     max_parallel=args.jobs,
                 )
-
             else:
-
-                run_nhmmer(
+                generated_tblout = run_nhmmer(
                     dfam_db=args.dfam_db,
                     consensus_fasta=args.fasta,
                     tblout=dfam_tblout,
@@ -297,9 +353,12 @@ def main():
                     cpu=args.cpu,
                 )
 
-            dfam_hits = parse_nhmmer_tblout(dfam_tblout)
+            log_step(f"Parsing generated Dfam tblout: {generated_tblout}")
+            dfam_hits = parse_nhmmer_tblout(generated_tblout)
+            log_step(f"Parsed {len(dfam_hits)} Dfam hits")
 
         else:
+            log_step("No Dfam evidence provided")
             dfam_hits = []
 
         if args.mmseqs_rescue_tsv:
