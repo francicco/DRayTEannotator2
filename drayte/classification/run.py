@@ -1,13 +1,16 @@
 import argparse
 
 from .classify import classify_family
-from .dfam import parse_nhmmer_tblout, run_nhmmer
 from .features import build_families_from_evidence
 from .hmmer import parse_domtblout
 from .pipeline import run_domain_annotation
 from .io import load_families_tsv, write_classification_tsv, write_evidence_tsv
 from .structure import load_structure_evidence_tsv
-
+from .dfam import (
+    parse_nhmmer_tblout,
+    run_nhmmer,
+    run_nhmmer_parallel_chunks,
+)
 
 def classify_families(families):
 
@@ -68,10 +71,24 @@ def main():
     )
 
     parser.add_argument(
+        "--dfam-chunks",
+        type=int,
+        default=0,
+        help="Split FASTA into N chunks and run nhmmer in parallel",
+    )
+
+    parser.add_argument(
+        "--dfam-jobs",
+        type=int,
+        default=None,
+        help="Maximum concurrent nhmmer jobs",
+    )
+
+    parser.add_argument(
         "--cpu",
         type=int,
         default=1,
-        help="Number of CPUs for hmmscan",
+        help="Number of CPUs for nhmmer",
     )
 
     parser.add_argument(
@@ -185,13 +202,27 @@ def main():
                 / "dfam.tblout"
             )
 
-            run_nhmmer(
-                dfam_db=args.dfam_db,
-                consensus_fasta=args.fasta,
-                tblout=dfam_tblout,
-                nhmmer_bin=args.nhmmer_bin,
-                cpu=args.cpu,
-            )
+            if args.dfam_chunks and args.dfam_chunks > 1:
+
+                dfam_tblout = run_nhmmer_parallel_chunks(
+                    dfam_db=args.dfam_db,
+                    consensus_fasta=args.fasta,
+                    outdir=args.dfam_outdir,
+                    chunks=args.dfam_chunks,
+                    nhmmer_bin=args.nhmmer_bin,
+                    cpu_per_job=args.cpu,
+                    max_parallel=args.dfam_jobs,
+                )
+
+            else:
+
+                run_nhmmer(
+                    dfam_db=args.dfam_db,
+                    consensus_fasta=args.fasta,
+                    tblout=dfam_tblout,
+                    nhmmer_bin=args.nhmmer_bin,
+                    cpu=args.cpu,
+                )
 
             dfam_hits = parse_nhmmer_tblout(dfam_tblout)
 

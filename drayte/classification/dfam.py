@@ -105,3 +105,112 @@ def best_dfam_hits_by_family(hits: List[DfamHit]) -> dict[str, DfamHit]:
             best[hit.family_id] = hit
 
     return best
+
+
+def split_fasta_round_robin(
+    fasta: str | Path,
+    outdir: str | Path,
+    chunks: int,
+) -> list[Path]:
+    from Bio import SeqIO
+
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    handles = []
+    paths = []
+
+    for i in range(chunks):
+        path = outdir / f"chunk_{i + 1:03d}.fa"
+        paths.append(path)
+        handles.append(open(path, "w"))
+
+    try:
+        for idx, rec in enumerate(SeqIO.parse(str(fasta), "fasta")):
+            handle = handles[idx % chunks]
+            SeqIO.write(rec, handle, "fasta")
+    finally:
+        for handle in handles:
+            handle.close()
+
+    return [
+        p for p in paths
+        if p.exists() and p.stat().st_size > 0
+    ]
+
+
+def merge_tblout_files(
+    tblouts: list[Path],
+    merged_tblout: str | Path,
+) -> Path:
+    merged_tblout = Path(merged_tblout)
+    merged_tblout.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(merged_tblout, "w") as out:
+        for path in tblouts:
+            with open(path) as fh:
+                for line in fh:
+                    out.write(line)
+
+    return merged_tblout
+
+
+def run_nhmmer_parallel_chunks(
+    dfam_db: str | Path,
+    consensus_fasta: str | Path,
+    outdir: str | Path,
+    chunks: int,
+    nhmmer_bin: str = "nhmmer",
+    cpu_per_job: int = 1,
+    max_parallel: int | None = None,
+) -> Path:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    outdir = Path(outdir)
+    chunks_dir = outdir / "chunks"
+    tblout_dir = outdir / "tblouts"
+
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    tblout_dir.mkdir(parents=True, exist_ok=True)
+
+    fasta_chunks = split_fasta_round_robin(
+        fasta=consensus_fasta,
+        outdir=chunks_dir,
+        chunks=chunks,
+    )
+
+    if max_parallel is None:
+        max_parallel = chunks
+
+    tblouts = []
+
+    def _run_one(chunk_fa: Path) -> Path:
+        tblout = tblout_dir / f"{chunk_fa.stem}.tblout"
+
+        run_nhmmer(
+            dfam_db=dfam_db,
+            consensus_fasta=chunk_fa,
+            tblout=tblout,
+            nhmmer_bin=nhmmer_bin,
+            cpu=cpu_per_job,
+        )
+
+        return tblout
+
+    with ThreadPoolExecutor(max_workers=max_parallel) as executor:
+        futures = [
+            executor.submit(_run_one, chunk)
+            for chunk in fasta_chunks
+        ]
+
+        for future in as_completed(futures):
+            tblouts.append(future.result())
+
+    tblouts = sorted(tblouts)
+
+    merged = outdir / "dfam.merged.tblout"
+
+    return merge_tblout_files(
+        tblouts=tblouts,
+        merged_tblout=merged,
+    )

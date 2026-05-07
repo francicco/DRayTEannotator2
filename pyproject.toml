@@ -22,6 +22,9 @@ dependencies = [
 drayte = "drayte.pipeline.runner:main"
 TE-summary = "drayte.reporting.SummaryFilesGen:main"
 TE-refine = "drayte.refinement.refine_repeatmasker:main"
+drayte-classify = "drayte.classification.run:main"
+drayte-structure = "drayte.classification.detect_structure:main"
+drayte-evaluate = "drayte.classification.evaluate:main"
 
 [tool.setuptools.packages.find]
 include = ["drayte*"]
