@@ -1,7 +1,10 @@
 from pathlib import Path
 
 from drayte.classification.dfam import parse_nhmmer_tblout
-
+from drayte.classification.dfam import (
+    DfamHit,
+    best_dfam_hits_by_family,
+)
 
 def test_parse_nhmmer_tblout(tmp_path: Path):
     tblout = tmp_path / "dfam.tblout"
@@ -22,3 +25,40 @@ def test_parse_nhmmer_tblout(tmp_path: Path):
     assert hits[0].accession == "DF000000006.4"
     assert hits[0].evalue == 7.6e-10
     assert hits[0].score == 34.5
+
+def test_best_dfam_hits_by_family():
+    hits = [
+        DfamHit(
+            family_id="fam1",
+            model_name="CR1_A",
+            accession="DF1",
+            evalue=1e-10,
+            score=50,
+            ali_start=1,
+            ali_end=100,
+        ),
+        DfamHit(
+            family_id="fam1",
+            model_name="CR1_B",
+            accession="DF2",
+            evalue=1e-20,
+            score=70,
+            ali_start=1,
+            ali_end=100,
+        ),
+        DfamHit(
+            family_id="fam2",
+            model_name="Gypsy_A",
+            accession="DF3",
+            evalue=1e-5,
+            score=30,
+            ali_start=1,
+            ali_end=100,
+        ),
+    ]
+
+    best = best_dfam_hits_by_family(hits)
+
+    assert len(best) == 2
+    assert best["fam1"].model_name == "CR1_B"
+    assert best["fam2"].model_name == "Gypsy_A"

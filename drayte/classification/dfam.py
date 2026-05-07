@@ -86,3 +86,22 @@ def parse_nhmmer_tblout(
             )
 
     return hits
+
+def best_dfam_hits_by_family(hits: List[DfamHit]) -> dict[str, DfamHit]:
+    best = {}
+
+    for hit in hits:
+        current = best.get(hit.family_id)
+
+        if current is None:
+            best[hit.family_id] = hit
+            continue
+
+        if hit.score > current.score:
+            best[hit.family_id] = hit
+            continue
+
+        if hit.score == current.score and hit.evalue < current.evalue:
+            best[hit.family_id] = hit
+
+    return best
