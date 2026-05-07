@@ -162,10 +162,7 @@ def classify_family(f):
 
     te_class, order = CLASS_MAP[best_label]
 
-    if (
-        f.homology_superfamily not in {"", "NA", "Unknown", None}
-        and f.homology_score >= 0.8
-    ):
+    if f.homology_superfamily not in {"", "NA", "Unknown", None}:
         superfamily = f.homology_superfamily
     elif f.dfam_superfamily not in {"", "NA", "Unknown", None}:
         superfamily = f.dfam_superfamily
