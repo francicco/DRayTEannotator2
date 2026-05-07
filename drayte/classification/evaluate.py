@@ -10,7 +10,7 @@ def load_tsv(path):
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
-def evaluate(expected_rows, predicted_rows):
+def evaluate(expected_rows, predicted_rows, ignore_unknown_expected=False):
 
     pred_by_id = {
         row["family_id"]: row
@@ -29,6 +29,12 @@ def evaluate(expected_rows, predicted_rows):
     order_confusion = Counter()
 
     for exp in expected_rows:
+
+        if (
+            ignore_unknown_expected
+            and exp.get("expected_superfamily") in {"", "NA", "Unknown", None}
+        ):
+            continue
 
         family_id = exp["family_id"]
 
@@ -97,12 +103,22 @@ def main():
         required=True,
     )
 
+    parser.add_argument(
+        "--ignore-unknown-expected",
+        action="store_true",
+        help="Ignore rows where expected_superfamily is Unknown/NA/empty",
+    )
+
     args = parser.parse_args()
 
     expected = load_tsv(args.expected)
     predicted = load_tsv(args.classifications)
 
-    results = evaluate(expected, predicted)
+    results = evaluate(
+        expected,
+        predicted,
+        ignore_unknown_expected=args.ignore_unknown_expected,
+    )
 
     metrics = results["metrics"]
 
