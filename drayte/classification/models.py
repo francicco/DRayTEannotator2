@@ -21,6 +21,10 @@ class Family:
     consensus_len: int
     n_copies: int
 
+    original_header: str = ""
+    header_class: str = "Unknown"
+    header_superfamily: str = "Unknown"
+
     homology_class: str = "Unknown"
     homology_superfamily: str = "Unknown"
     homology_score: float = 0.0

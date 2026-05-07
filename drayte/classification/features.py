@@ -10,6 +10,7 @@ from .dfammap import infer_te_from_dfam_model
 from .domainmap import normalize_domains
 from .hmmer import DomainHit, summarize_domains_by_family
 from .homology import homology_from_repeatmasker_header
+from .parsers.repeatmasker import parse_repeatmasker_header
 from .ids import clean_family_id
 from .models import Family
 from .orfs import extract_orf_calls_by_family, summarize_orfs
@@ -30,6 +31,29 @@ def raw_ids_by_clean_id(input_fasta: str | Path) -> Dict[str, str]:
     }
 
 
+def header_labels_by_clean_id(input_fasta: str | Path) -> Dict[str, dict]:
+    labels = {}
+
+    for rec in SeqIO.parse(str(input_fasta), "fasta"):
+        family_id = clean_family_id(rec.id)
+        parsed = parse_repeatmasker_header(rec.id)
+
+        if parsed is None:
+            labels[family_id] = {
+                "original_header": rec.description,
+                "header_class": "Unknown",
+                "header_superfamily": "Unknown",
+            }
+        else:
+            labels[family_id] = {
+                "original_header": rec.description,
+                "header_class": parsed.rm_class,
+                "header_superfamily": parsed.rm_superfamily,
+            }
+
+    return labels
+
+
 def build_families_from_evidence(
     consensus_fasta: str | Path,
     domain_hits: list[DomainHit] | None = None,
@@ -40,6 +64,7 @@ def build_families_from_evidence(
 ) -> list[Family]:
     lengths = consensus_lengths(consensus_fasta)
     raw_ids = raw_ids_by_clean_id(consensus_fasta)
+    header_labels = header_labels_by_clean_id(consensus_fasta)
 
     orf_calls_raw = extract_orf_calls_by_family(
         consensus_fasta,
@@ -73,6 +98,14 @@ def build_families_from_evidence(
         )
 
         struct = structure_summary.get(family_id, {})
+        header = header_labels.get(
+            family_id,
+            {
+                "original_header": family_id,
+                "header_class": "Unknown",
+                "header_superfamily": "Unknown",
+            },
+        )
 
         dfam_hit = best_dfam.get(family_id)
 
@@ -109,6 +142,9 @@ def build_families_from_evidence(
                 family_id=family_id,
                 consensus_len=seq_len,
                 n_copies=0,
+                original_header=header["original_header"],
+                header_class=header["header_class"],
+                header_superfamily=header["header_superfamily"],
                 homology_class=homology_class,
                 homology_superfamily=homology_superfamily,
                 homology_score=homology_score,
