@@ -70,6 +70,18 @@ def infer_status(candidates, best_score, margin):
 def classify_family(f):
     candidates = []
 
+    if f.dfam_order == "LTR":
+        candidates.append(("LTR", max(0.85, f.dfam_score / 50.0)))
+    
+    if f.dfam_order == "LINE":
+        candidates.append(("LINE", max(0.85, f.dfam_score / 50.0)))
+    
+    if f.dfam_order == "TIR":
+        candidates.append(("DNA_TIR", max(0.85, f.dfam_score / 50.0)))
+    
+    if f.dfam_order == "Helitron":
+        candidates.append(("HELITRON", max(0.90, f.dfam_score / 50.0)))
+
     if is_ltr_candidate(f):
         candidates.append(("LTR", score_ltr(f)))
 
@@ -130,7 +142,16 @@ def classify_family(f):
 
     te_class, order = CLASS_MAP[best_label]
 
-    superfamily = f.homology_superfamily
+    if f.dfam_superfamily not in {"", "NA", "Unknown", None}:
+        superfamily = f.dfam_superfamily
+    else:
+        superfamily = f.homology_superfamily
+
+    if f.dfam_model:
+        evidence.append(
+            f"dfam={f.dfam_model}:{f.dfam_order}:{f.dfam_superfamily}:{f.dfam_score}"
+        )
+
     if superfamily in {"", "NA", None}:
         superfamily = "Unknown"
 
