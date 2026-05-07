@@ -81,3 +81,39 @@ def test_build_families_from_structure_evidence(tmp_path: Path):
     assert f.ltr_present
     assert f.tsd_present
     assert not f.tir_present
+
+
+def test_build_families_from_dfam_evidence(tmp_path: Path):
+    from drayte.classification.dfam import DfamHit
+
+    fasta = tmp_path / "families.fa"
+    fasta.write_text(
+        ">fam1\n"
+        "ATG" + "AAA" * 200 + "TAA" + "\n"
+    )
+
+    families = build_families_from_evidence(
+        fasta,
+        domain_hits=[],
+        dfam_hits=[
+            DfamHit(
+                family_id="fam1",
+                model_name="CR1-16_AMi",
+                accession="DF000001265.3",
+                evalue=1e-10,
+                score=40.0,
+                ali_start=1,
+                ali_end=200,
+            )
+        ],
+        min_orf_nt=300,
+        include_reverse_orfs=False,
+    )
+
+    f = families[0]
+
+    assert f.dfam_class == "Class_I"
+    assert f.dfam_order == "LINE"
+    assert f.dfam_superfamily == "CR1"
+    assert f.dfam_model == "CR1-16_AMi"
+    assert f.dfam_score == 40.0

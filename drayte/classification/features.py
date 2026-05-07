@@ -5,6 +5,8 @@ from typing import Dict
 
 from Bio import SeqIO
 
+from .dfam import DfamHit, best_dfam_hits_by_family
+from .dfammap import infer_te_from_dfam_model
 from .domainmap import normalize_domains
 from .hmmer import DomainHit, summarize_domains_by_family
 from .homology import homology_from_repeatmasker_header
@@ -31,6 +33,7 @@ def raw_ids_by_clean_id(input_fasta: str | Path) -> Dict[str, str]:
 def build_families_from_evidence(
     consensus_fasta: str | Path,
     domain_hits: list[DomainHit] | None = None,
+    dfam_hits: list[DfamHit] | None = None,
     structure_evidence: list[StructureEvidence] | None = None,
     min_orf_nt: int = 500,
     include_reverse_orfs: bool = True,
@@ -52,6 +55,7 @@ def build_families_from_evidence(
     orf_summary = summarize_orfs(orf_calls)
 
     domain_summary = summarize_domains_by_family(domain_hits or [])
+    best_dfam = best_dfam_hits_by_family(dfam_hits or [])
     structure_summary = summarize_structure_evidence(structure_evidence or [])
 
     families = []
@@ -69,6 +73,23 @@ def build_families_from_evidence(
         )
 
         struct = structure_summary.get(family_id, {})
+
+        dfam_hit = best_dfam.get(family_id)
+
+        if dfam_hit is None:
+            dfam_class = None
+            dfam_order = None
+            dfam_superfamily = None
+            dfam_model = None
+            dfam_score = 0.0
+        else:
+            (
+                dfam_class,
+                dfam_order,
+                dfam_superfamily,
+            ) = infer_te_from_dfam_model(dfam_hit.model_name)
+            dfam_model = dfam_hit.model_name
+            dfam_score = dfam_hit.score
 
         hom = homology_from_repeatmasker_header(
             raw_ids.get(family_id, family_id)
@@ -91,6 +112,11 @@ def build_families_from_evidence(
                 homology_class=homology_class,
                 homology_superfamily=homology_superfamily,
                 homology_score=homology_score,
+                dfam_class=dfam_class,
+                dfam_order=dfam_order,
+                dfam_superfamily=dfam_superfamily,
+                dfam_model=dfam_model,
+                dfam_score=dfam_score,
                 domains=domains,
                 ltr_present=struct.get("ltr_present", False),
                 tir_present=struct.get("tir_present", False),

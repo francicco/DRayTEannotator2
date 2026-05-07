@@ -25,6 +25,12 @@ class Family:
     homology_superfamily: str = "Unknown"
     homology_score: float = 0.0
 
+    dfam_class: str | None = None
+    dfam_order: str | None = None
+    dfam_superfamily: str | None = None
+    dfam_model: str | None = None
+    dfam_score: float = 0.0
+
     domains: Set[str] = field(default_factory=set)
 
     ltr_present: bool = False
