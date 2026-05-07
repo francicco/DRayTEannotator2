@@ -25,6 +25,7 @@ TE-refine = "drayte.refinement.refine_repeatmasker:main"
 drayte-classify = "drayte.classification.run:main"
 drayte-structure = "drayte.classification.detect_structure:main"
 drayte-evaluate = "drayte.classification.evaluate:main"
+drayte-write-library = "drayte.classification.write_library:main"
 
 [tool.setuptools.packages.find]
 include = ["drayte*"]

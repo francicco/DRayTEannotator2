@@ -125,15 +125,35 @@ def count_supporting_evidence(f, best_label):
 def classify_family(f):
     candidates = []
 
+    homology_order_label_map = {
+        "DNA": "DNA_TIR",
+        "TIR": "DNA_TIR",
+        "Helitron": "HELITRON",
+        "SINE": "SINE",
+        "LTR": "LTR",
+        "LINE": "LINE",
+    }
+
+    if (
+        f.homology_score >= 0.8
+        and f.homology_order in homology_order_label_map
+    ):
+        candidates.append(
+            (
+                homology_order_label_map[f.homology_order],
+                min(0.99, max(0.85, f.homology_score)),
+            )
+        )
+
     if f.dfam_order == "LTR":
         candidates.append(("LTR", min(0.99, max(0.85, f.dfam_score / 100.0))))
-    
+
     if f.dfam_order == "LINE":
         candidates.append(("LINE", min(0.99, max(0.85, f.dfam_score / 100.0))))
-    
+
     if f.dfam_order == "TIR":
         candidates.append(("DNA_TIR", min(0.99, max(0.85, f.dfam_score / 100.0))))
-    
+
     if f.dfam_order == "Helitron":
         candidates.append(("HELITRON", min(0.99, max(0.90, f.dfam_score / 100.0))))
 
@@ -160,7 +180,7 @@ def classify_family(f):
 
     if (
         rescue_label is not None
-        and f.rescue_identity >= 0.85
+        and f.rescue_identity >= 0.80
     ):
         rescue_candidates.append(
             (
@@ -185,16 +205,8 @@ def classify_family(f):
 
     # High-confidence RepeatMasker-style homology priors should not be
     # overridden by generic protein domains such as DDE or RT-like hits.
-    homology_label_map = {
-        "DNA": "DNA_TIR",
-        "Helitron": "HELITRON",
-        "SINE": "SINE",
-        "LTR": "LTR",
-        "LINE": "LINE",
-    }
-
-    if f.homology_score >= 0.8 and f.homology_class in homology_label_map:
-        preferred = homology_label_map[f.homology_class]
+    if f.homology_score >= 0.8 and f.homology_order in homology_order_label_map:
+        preferred = homology_order_label_map[f.homology_order]
         candidates = [
             c for c in candidates
             if c[0] == preferred

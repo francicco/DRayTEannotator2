@@ -361,22 +361,54 @@ def main():
             log_step("No Dfam evidence provided")
             dfam_hits = []
 
-        if args.mmseqs_rescue_tsv:
-            log_step(f"Parsing MMseqs rescue TSV: {args.mmseqs_rescue_tsv}")
+
+        default_mmseqs_tsv = (
+            Path(args.mmseqs_outdir)
+            / "mmseqs_rescue.tsv"
+        )
+
+        mmseqs_tsv = (
+            Path(args.mmseqs_rescue_tsv)
+            if args.mmseqs_rescue_tsv
+            else default_mmseqs_tsv
+        )
+
+        if mmseqs_tsv.exists():
+            log_step(
+                f"Parsing cached MMseqs rescue TSV: {mmseqs_tsv}"
+            )
+
+            target_lengths = sequence_lengths_by_clean_id(
+                args.mmseqs_rescue_db
+                if args.mmseqs_rescue_db
+                else args.fasta
+            )
+
             mmseqs_hits = parse_mmseqs_tsv(
-                args.mmseqs_rescue_tsv,
+                mmseqs_tsv,
                 query_lengths=query_lengths,
-                target_lengths=query_lengths,
-                min_identity=0.85,
+                target_lengths=target_lengths,
+                min_identity=0.80,
                 min_aln_len=500,
                 min_query_cov=0.40,
                 min_target_cov=0.30,
             )
-            log_step(f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering")
+
+            log_step(
+                f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering"
+            )
 
         elif args.mmseqs_rescue_db:
-            log_step(f"Running MMseqs rescue search against {args.mmseqs_rescue_db}")
-            mmseqs_tsv = run_mmseqs_rescue(
+            log_step(
+                f"No cached MMseqs rescue TSV found at {mmseqs_tsv}"
+            )
+
+            log_step(
+                f"Running MMseqs rescue search against "
+                f"{args.mmseqs_rescue_db}"
+            )
+
+            generated_tsv = run_mmseqs_rescue(
                 query_fasta=args.fasta,
                 reference_fasta=args.mmseqs_rescue_db,
                 outdir=args.mmseqs_outdir,
@@ -389,7 +421,7 @@ def main():
             )
 
             mmseqs_hits = parse_mmseqs_tsv(
-                mmseqs_tsv,
+                generated_tsv,
                 query_lengths=query_lengths,
                 target_lengths=target_lengths,
                 min_identity=0.80,
@@ -397,7 +429,10 @@ def main():
                 min_query_cov=0.40,
                 min_target_cov=0.30,
             )
-            log_step(f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering")
+
+            log_step(
+                f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering"
+            )
 
         else:
             log_step("No MMseqs rescue evidence provided")
