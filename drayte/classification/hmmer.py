@@ -132,7 +132,7 @@ def run_hmmscan_parallel_chunks(
             flush=True,
         )
 
-        return run_hmmscan(
+        result = run_hmmscan(
             hmm_db=hmm_db,
             proteins_fasta=chunk_fasta,
             domtblout=domtblout,
@@ -150,6 +150,8 @@ def run_hmmscan_parallel_chunks(
             file=sys.stderr,
             flush=True,
         )
+	
+        return result
 
     domtblouts = []
 
