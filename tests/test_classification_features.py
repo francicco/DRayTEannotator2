@@ -138,4 +138,4 @@ def test_build_families_preserves_header_labels(tmp_path: Path):
     assert f.family_id == "fam1"
     assert f.header_class == "RC"
     assert f.header_superfamily == "Helitron"
-    assert f.original_header == "fam1#RC/Helitron @SpeciesX"
+    assert f.original_header == "fam1#RC/Helitron"

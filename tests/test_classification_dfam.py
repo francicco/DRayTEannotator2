@@ -62,3 +62,48 @@ def test_best_dfam_hits_by_family():
     assert len(best) == 2
     assert best["fam1"].model_name == "CR1_B"
     assert best["fam2"].model_name == "Gypsy_A"
+
+
+def test_split_fasta_round_robin(tmp_path: Path):
+    from drayte.classification.dfam import split_fasta_round_robin
+
+    fasta = tmp_path / "input.fa"
+    fasta.write_text(
+        ">a\nAAAA\n"
+        ">b\nCCCC\n"
+        ">c\nGGGG\n"
+        ">d\nTTTT\n"
+    )
+
+    chunks = split_fasta_round_robin(
+        fasta=fasta,
+        outdir=tmp_path / "chunks",
+        chunks=2,
+    )
+
+    assert len(chunks) == 2
+
+    contents = [p.read_text() for p in chunks]
+
+    assert ">a" in contents[0]
+    assert ">c" in contents[0]
+    assert ">b" in contents[1]
+    assert ">d" in contents[1]
+
+
+def test_merge_tblout_files(tmp_path: Path):
+    from drayte.classification.dfam import merge_tblout_files
+
+    a = tmp_path / "a.tblout"
+    b = tmp_path / "b.tblout"
+    out = tmp_path / "merged.tblout"
+
+    a.write_text("# header a\nhit_a\n")
+    b.write_text("# header b\nhit_b\n")
+
+    merge_tblout_files([a, b], out)
+
+    text = out.read_text()
+
+    assert "hit_a" in text
+    assert "hit_b" in text

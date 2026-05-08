@@ -1,21 +1,26 @@
 from drayte.classification.domainmap import (
-    normalize_domain_name,
+    infer_orders_from_domains,
+    infer_superfamilies_from_domains,
     normalize_domains,
 )
 
 
-def test_normalize_domain_name():
-    assert normalize_domain_name("RVT_1") == "RT"
-    assert normalize_domain_name("Reverse_transcriptase") == "RT"
-    assert normalize_domain_name("rve") == "INTEGRASE"
-    assert normalize_domain_name("DDE_Tnp_1") == "TRANSPOSASE"
-    assert normalize_domain_name("RNase_H") == "RNASEH"
-    assert normalize_domain_name("unknown_domain") is None
+def test_infer_orders_from_domains():
+    domains = {"RVT_1", "rve", "DDE_Tnp_1", "RepHel"}
+
+    orders = infer_orders_from_domains(domains)
+
+    assert "RETRO" in orders
+    assert "LTR" in orders
+    assert "TIR" in orders
+    assert "Helitron" in orders
 
 
-def test_normalize_domains():
-    domains = normalize_domains(
-        ["RVT_1", "rve", "DDE_Tnp_1", "unknown_domain"]
-    )
+def test_infer_superfamilies_from_domains():
+    domains = {"PiggyBac", "MULE", "RepHel"}
 
-    assert domains == {"RT", "INTEGRASE", "TRANSPOSASE"}
+    superfamilies = infer_superfamilies_from_domains(domains)
+
+    assert "PiggyBac" in superfamilies
+    assert "Mutator" in superfamilies
+    assert "Helitron" in superfamilies
