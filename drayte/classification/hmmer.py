@@ -9,6 +9,7 @@ from typing import Dict, List
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from Bio import SeqIO
+from drayte.utils.fasta_split import split_fasta_balanced_by_length
 
 from datetime import datetime
 import os
@@ -33,30 +34,16 @@ def split_fasta(
     chunks: int,
     suffix: str = ".fa",
 ) -> list[Path]:
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
+    """
+    Compatibility wrapper around balanced FASTA splitting.
+    """
 
-    records = list(SeqIO.parse(str(fasta), "fasta"))
-
-    if not records:
-        return []
-
-    if chunks <= 1:
-        out = outdir / f"chunk_001{suffix}"
-        SeqIO.write(records, str(out), "fasta")
-        return [out]
-
-    chunk_size = max(1, (len(records) + chunks - 1) // chunks)
-    chunk_files = []
-
-    for i in range(0, len(records), chunk_size):
-        chunk_records = records[i:i + chunk_size]
-        chunk_id = len(chunk_files) + 1
-        out = outdir / f"chunk_{chunk_id:03d}{suffix}"
-        SeqIO.write(chunk_records, str(out), "fasta")
-        chunk_files.append(out)
-
-    return chunk_files
+    return split_fasta_balanced_by_length(
+        input_fasta=fasta,
+        outdir=outdir,
+        n_chunks=chunks,
+        prefix="chunk",
+    )
 
 def merge_domtblouts(
     domtblouts: list[Path],
@@ -124,14 +111,6 @@ def run_hmmscan_parallel_chunks(
             1 for _ in SeqIO.parse(str(chunk_fasta), "fasta")
         )
 
-        print(
-            f"[DRayTE][Pfam] START chunk={chunk_fasta.stem} "
-            f"seqs={n_seqs} pid={pid} "
-            f"time={start.isoformat(timespec='seconds')}",
-            file=sys.stderr,
-            flush=True,
-        )
-
         result = run_hmmscan(
             hmm_db=hmm_db,
             proteins_fasta=chunk_fasta,
@@ -143,14 +122,6 @@ def run_hmmscan_parallel_chunks(
         end = datetime.now()
         elapsed = end - start
 
-        print(
-            f"[DRayTE][Pfam] END chunk={chunk_fasta.stem} "
-            f"elapsed={elapsed} "
-            f"time={end.isoformat(timespec='seconds')}",
-            file=sys.stderr,
-            flush=True,
-        )
-	
         return result
 
     domtblouts = []
@@ -161,8 +132,23 @@ def run_hmmscan_parallel_chunks(
             for chunk in chunk_files
         }
 
+        total = len(futures)
+        completed = 0
+
         for future in as_completed(futures):
-            domtblouts.append(future.result())
+            chunk = futures[future]
+            result = future.result()
+            domtblouts.append(result)
+
+            completed += 1
+
+            print(
+                f"[DRayTE][Pfam] progress "
+                f"{completed}/{total} chunks completed "
+                f"| last={chunk.stem}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     merged = outdir / "domains.domtblout"
 

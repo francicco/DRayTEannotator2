@@ -64,32 +64,46 @@ def test_best_dfam_hits_by_family():
     assert best["fam2"].model_name == "Gypsy_A"
 
 
-def test_split_fasta_round_robin(tmp_path: Path):
-    from drayte.classification.dfam import split_fasta_round_robin
+def test_split_fasta_balanced_by_length(tmp_path: Path):
+    from drayte.utils.fasta_split import split_fasta_balanced_by_length
 
     fasta = tmp_path / "input.fa"
+    chunks_dir = tmp_path / "chunks"
+
     fasta.write_text(
-        ">a\nAAAA\n"
-        ">b\nCCCC\n"
-        ">c\nGGGG\n"
-        ">d\nTTTT\n"
+        ">long\n" + "A" * 100 + "\n"
+        ">medium\n" + "A" * 50 + "\n"
+        ">short1\n" + "A" * 25 + "\n"
+        ">short2\n" + "A" * 25 + "\n"
     )
 
-    chunks = split_fasta_round_robin(
-        fasta=fasta,
-        outdir=tmp_path / "chunks",
-        chunks=2,
+    chunks = split_fasta_balanced_by_length(
+        input_fasta=fasta,
+        outdir=chunks_dir,
+        n_chunks=2,
+        prefix="chunk",
     )
 
     assert len(chunks) == 2
+    assert all(p.exists() for p in chunks)
 
-    contents = [p.read_text() for p in chunks]
+    sizes = []
 
-    assert ">a" in contents[0]
-    assert ">c" in contents[0]
-    assert ">b" in contents[1]
-    assert ">d" in contents[1]
+    for path in chunks:
+        total = 0
+        current = []
 
+        for line in path.read_text().splitlines():
+            if line.startswith(">"):
+                continue
+            total += len(line.strip())
+
+        sizes.append(total)
+
+    assert sorted(sizes) == [100, 100]
+
+    report = chunks_dir / "chunk.sizes.tsv"
+    assert report.exists()
 
 def test_merge_tblout_files(tmp_path: Path):
     from drayte.classification.dfam import merge_tblout_files

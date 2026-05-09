@@ -42,3 +42,20 @@ family_inspection:
   include_plots: true
   archive: true
   include_non_te_repeats: false
+
+classification:
+  enabled: true
+  preliminary: true
+  final: true
+  min_orf_nt: 300
+  forward_only: false
+  pfam_db: Path-to-Pfam-A.hmm
+  dfam_db: Path-to-Dfam.hmm
+  hmmscan_bin: hmmscan
+  nhmmer_bin: nhmmer
+  mmseqs_bin: /user/work/tk19812/software/mmseqs/bin/mmseqs
+  mmseqs_rescue_db: null
+  chunks: 40
+  jobs: 40
+  cpu: 1
+  taxon: Lineage

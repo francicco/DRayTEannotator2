@@ -59,18 +59,7 @@ def main() -> None:
     if heliano_result.get("heliano_unique_library"):
         curation_result["heliano_library"] = heliano_result["heliano_unique_library"]
 
-        classification_result = classification.run(config, curation_result, logger)
-    write_manifest(
-        config.outdir_path / "classification",
-        "classification",
-        classification_result,
-    )
-
-    final_annotation_result = final_annotation.run(
-        config,
-        classification_result,
-        logger,
-    )
+    final_annotation_result = final_annotation.run(config, curation_result, logger)
     write_manifest(config.outdir_path / "final_annotation", "final_annotation", final_annotation_result)
 
     refinement_result = annotation_refinement.run(config, final_annotation_result, logger)
@@ -82,6 +71,21 @@ def main() -> None:
         logger,
     )
     write_manifest(config.outdir_path / "family_inspection", "family_inspection", family_inspection_result)
+
+    final_classification_result = classification.run(
+        config,
+        curation_result,
+        logger,
+        stage_name="classification",
+        final_mode=True,
+        annotation_result=final_annotation_result,
+        refinement_result=refinement_result,
+    )
+#    write_manifest(
+#        config.outdir_path / "classification",
+#        "classification",
+#        final_classification_result,
+#    )
 
     summary_result = run_summary_files(
         config=config,

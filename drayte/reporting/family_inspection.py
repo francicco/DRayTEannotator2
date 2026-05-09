@@ -361,27 +361,33 @@ def run(config, refinement_result: dict, logger) -> dict:
             "outdir": str(outdir),
         }
 
-    # Prefer final filtered annotation if available, otherwise use overlap-aware refinement.
-    refined_tsv = refinement_result.get("filtered_tsv") or refinement_result.get("refined_tsv")
-    if refined_tsv is None:
-        raise RuntimeError("No refined TSV available for family_inspection")
+    manifest = outdir / "family_inspection.manifest.json"
 
-    extension_dir = config.outdir_path / "extension"
-
-    curated_library = config.outdir_path / "curation" / "Final.RepeatModeler.Lib.fa"
-
-    result = build_family_inspection(
-        species=species,
-        outdir=outdir,
-        refined_tsv=Path(refined_tsv),
-        curated_library=curated_library if curated_library.exists() else None,
-        extension_dir=extension_dir,
-        use_symlinks=bool(cfg.get("use_symlinks", True)),
-        include_plots=bool(cfg.get("include_plots", True)),
-        archive=bool(cfg.get("archive", True)),
-        include_non_te_repeats=bool(cfg.get("include_non_te_repeats", False)),
-    )
-
-    logger.info("family_inspection completed: %s families", result["families"])
+    if manifest.exists():
+        logger.info("family_inspection manifest already exists; skipping")
+        return json.loads(manifest.read_text())
+    else:
+        # Prefer final filtered annotation if available, otherwise use overlap-aware refinement.
+        refined_tsv = refinement_result.get("filtered_tsv") or refinement_result.get("refined_tsv")
+        if refined_tsv is None:
+            raise RuntimeError("No refined TSV available for family_inspection")
+    
+        extension_dir = config.outdir_path / "extension"
+    
+        curated_library = config.outdir_path / "curation" / "Final.RepeatModeler.Lib.fa"
+    
+        result = build_family_inspection(
+            species=species,
+            outdir=outdir,
+            refined_tsv=Path(refined_tsv),
+            curated_library=curated_library if curated_library.exists() else None,
+            extension_dir=extension_dir,
+            use_symlinks=bool(cfg.get("use_symlinks", True)),
+            include_plots=bool(cfg.get("include_plots", True)),
+            archive=bool(cfg.get("archive", True)),
+            include_non_te_repeats=bool(cfg.get("include_non_te_repeats", False)),
+        )
+    
+        logger.info("family_inspection completed: %s families", result["families"])
 
     return result

@@ -121,6 +121,8 @@ def build_families_from_evidence(
     rescue_summary = infer_rescue_evidence(mmseqs_hits or [])
     structure_summary = summarize_structure_evidence(structure_evidence or [])
 
+    tsd_summary = {}
+
     families = []
 
     for family_id, seq_len in lengths.items():
@@ -157,11 +159,24 @@ def build_families_from_evidence(
             dfam_model = None
             dfam_score = 0.0
         else:
-            (
-                dfam_class,
-                dfam_order,
-                dfam_superfamily,
-            ) = infer_te_from_dfam_model(dfam_hit.model_name)
+            dfam_class = getattr(dfam_hit, "dfam_class", "Unknown")
+            dfam_order = getattr(dfam_hit, "dfam_order", "Unknown")
+            dfam_superfamily = getattr(
+                dfam_hit,
+                "dfam_superfamily",
+                "Unknown",
+            )
+            
+            if (
+                dfam_class in {None, "", "Unknown"}
+                and dfam_order in {None, "", "Unknown"}
+                and dfam_superfamily in {None, "", "Unknown"}
+            ):
+                (
+                    dfam_class,
+                    dfam_order,
+                    dfam_superfamily,
+                ) = infer_te_from_dfam_model(dfam_hit.model_name)
 
             dfam_model = dfam_hit.model_name
             dfam_score = dfam_hit.score
@@ -232,6 +247,9 @@ def build_families_from_evidence(
                 polyA_present=struct.get("polyA_present", False),
                 orf_count=orfs["orf_count"],
                 orf_max_len=orfs["orf_max_len"],
+                tsd_seq="",
+                tsd_len=0,
+                tsd_support=0.0,
             )
         )
 

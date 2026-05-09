@@ -9,11 +9,11 @@ from drayte.classification.io import (
     write_classification_tsv,
     write_evidence_tsv,
 )
-from drayte.classification.structure_detect import detect_structure_evidence
-from drayte.classification.structure import (
-    write_structure_evidence_tsv,
-    load_structure_evidence_tsv,
+from drayte.classification.structure_detect import (
+    detect_tirs_from_fasta,
+    write_tir_structure_tsv,
 )
+from drayte.classification.structure import load_structure_evidence_tsv
 from drayte.classification.hmmer import parse_domtblout
 from drayte.classification.pipeline import run_domain_annotation
 from drayte.classification.dfam import (
@@ -28,7 +28,10 @@ from drayte.classification.mmseqs import (
 )
 from drayte.classification.write_library import rewrite_fasta_headers
 from drayte.utils.paths import ensure_dir, stage_dir
-
+from drayte.classification.dfammap import parse_dfam_hmm_metadata
+from drayte.classification.nonauto import (
+    infer_nonautonomous_candidates,
+)
 
 def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
@@ -53,14 +56,22 @@ def require_db_for_missing_cache(
     )
 
 
-def run(config, curation_result: dict, logger) -> dict:
+def run(
+    config,
+    curation_result: dict,
+    logger,
+    stage_name: str = "classification",
+    final_mode: bool = False,
+    annotation_result: dict | None = None,
+    refinement_result: dict | None = None,
+) -> dict:
     species = config.species
 
-    outdir = ensure_dir(stage_dir(config.outdir_path, "classification"))
-    manifest = outdir / "classification.manifest.json"
+    outdir = ensure_dir(stage_dir(config.outdir_path, stage_name))
+    manifest = outdir / f"{stage_name}.manifest.json"
 
     logger.info("=" * 80)
-    logger.info("STAGE: classification")
+    logger.info("STAGE: %s", stage_name)
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
@@ -93,9 +104,13 @@ def run(config, curation_result: dict, logger) -> dict:
         logger.info("Parsing cached structure evidence: %s", structure_tsv)
         structure_evidence = load_structure_evidence_tsv(structure_tsv)
     else:
-        logger.info("Detecting structure evidence")
-        structure_evidence = detect_structure_evidence(library)
-        write_structure_evidence_tsv(structure_evidence, structure_tsv)
+        logger.info("Detecting TIR structure evidence")
+        tir_detections = detect_tirs_from_fasta(
+            library,
+            logger=logger,
+        )
+        write_tir_structure_tsv(tir_detections, structure_tsv)
+        structure_evidence = load_structure_evidence_tsv(structure_tsv)
 
     logger.info("Loaded %d structure evidence records", len(structure_evidence))
 
@@ -139,9 +154,23 @@ def run(config, curation_result: dict, logger) -> dict:
     dfam_tblout = dfam_outdir / "dfam.merged.tblout"
     dfam_db = classification_cfg.get("dfam_db")
 
+    dfam_metadata = {}
+
+    if dfam_db:
+        logger.info("Parsing Dfam HMM metadata: %s", dfam_db)
+        dfam_metadata = parse_dfam_hmm_metadata(dfam_db)
+        logger.info(
+            "Loaded Dfam metadata for %d models",
+            len(dfam_metadata),
+        )
+
     if dfam_tblout.exists() and dfam_tblout.stat().st_size > 0:
         logger.info("Parsing cached Dfam tblout: %s", dfam_tblout)
-        dfam_hits = parse_nhmmer_tblout(dfam_tblout)
+
+        dfam_hits = parse_nhmmer_tblout(
+            dfam_tblout,
+            dfam_metadata=dfam_metadata,
+        )
 
     elif dfam_db:
         logger.info("Running nhmmer against Dfam database: %s", dfam_db)
@@ -165,7 +194,10 @@ def run(config, curation_result: dict, logger) -> dict:
                 cpu=cpu,
             )
 
-        dfam_hits = parse_nhmmer_tblout(generated_tblout)
+        dfam_hits = parse_nhmmer_tblout(
+            generated_tblout,
+            dfam_metadata=dfam_metadata,
+        )
 
     else:
         logger.info("No Dfam evidence provided")
@@ -249,6 +281,19 @@ def run(config, curation_result: dict, logger) -> dict:
 
     results = classify_families(families)
 
+    #
+    # Non-autonomous candidate inference
+    #
+
+    logger.info("Inferring non-autonomous TE candidates")
+
+    nonauto_calls = infer_nonautonomous_candidates(families)
+
+    logger.info(
+        "Detected %d non-autonomous TE candidates",
+        len(nonauto_calls),
+    )
+
     classified = sum(1 for r in results if r["class"] != "Unknown")
     unknown = len(results) - classified
 
@@ -260,10 +305,20 @@ def run(config, curation_result: dict, logger) -> dict:
 
     classifications_tsv = outdir / f"{species}.classifications.tsv"
     evidence_tsv = outdir / f"{species}.evidence.tsv"
+    nonauto_tsv = outdir / f"{species}.nonauto_candidates.tsv"
     classified_library = outdir / f"{species}.classified.fa"
 
     write_classification_tsv(results, classifications_tsv)
     write_evidence_tsv(families, results, evidence_tsv)
+
+    from drayte.classification.nonauto_io import (
+        write_nonautonomous_tsv,
+    )
+
+    write_nonautonomous_tsv(
+        nonauto_calls,
+        nonauto_tsv,
+    )
 
     rewrite_fasta_headers(
         input_fasta=library,
@@ -283,6 +338,7 @@ def run(config, curation_result: dict, logger) -> dict:
         "mmseqs_rescue_tsv": str(mmseqs_tsv),
         "classifications_tsv": str(classifications_tsv),
         "evidence_tsv": str(evidence_tsv),
+        "nonauto_candidates_tsv": str(nonauto_tsv),
         "classified_library": str(classified_library),
         "final_library": str(classified_library),
         "n_families": len(results),

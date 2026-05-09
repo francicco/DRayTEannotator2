@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import List
 
 from .ids import clean_family_id
-
+from drayte.utils.fasta_split import split_fasta_balanced_by_length
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 @dataclass
 class DfamHit:
@@ -22,7 +23,10 @@ class DfamHit:
     score: float
     ali_start: int
     ali_end: int
-
+    dfam_class: str = "Unknown"
+    dfam_order: str = "Unknown"
+    dfam_superfamily: str = "Unknown"
+    dfam_ct: str = ""
 
 def run_nhmmer(
     dfam_db: str | Path,
@@ -37,14 +41,6 @@ def run_nhmmer(
     pid = os.getpid()
     start = datetime.now()
 
-    print(
-        f"[DRayTE][Dfam] START "
-        f"chunk={consensus_fasta} "
-        f"time={start.isoformat(timespec='seconds')}",
-        file=sys.stderr,
-        flush=True,
-    )
-
     cmd = [
         nhmmer_bin,
         "--cpu", str(cpu),
@@ -58,24 +54,17 @@ def run_nhmmer(
 
     end = datetime.now()
 
-    print(
-        f"[DRayTE][Dfam] END "
-        f"chunk={consensus_fasta} "
-        f"elapsed={(end-start).total_seconds():.1f}s "
-        f"time={end.isoformat(timespec='seconds')}",
-        file=sys.stderr,
-        flush=True,
-    )
-
     return tblout
-
 
 def parse_nhmmer_tblout(
     tblout: str | Path,
     max_evalue: float = 1e-5,
     min_score: float = 20.0,
+    dfam_metadata: dict[str, dict[str, str]] | None = None,
 ) -> List[DfamHit]:
+
     hits: List[DfamHit] = []
+    dfam_metadata = dfam_metadata or {}
 
     with open(tblout) as fh:
         for line in fh:
@@ -83,6 +72,7 @@ def parse_nhmmer_tblout(
                 continue
 
             parts = line.split()
+
             if len(parts) < 14:
                 continue
 
@@ -100,6 +90,8 @@ def parse_nhmmer_tblout(
             if score < min_score:
                 continue
 
+            meta = dfam_metadata.get(model_name, {})
+
             hits.append(
                 DfamHit(
                     family_id=family_id,
@@ -109,6 +101,13 @@ def parse_nhmmer_tblout(
                     score=score,
                     ali_start=ali_start,
                     ali_end=ali_end,
+                    dfam_class=meta.get("dfam_class", "Unknown"),
+                    dfam_order=meta.get("dfam_order", "Unknown"),
+                    dfam_superfamily=meta.get(
+                        "dfam_superfamily",
+                        "Unknown",
+                    ),
+                    dfam_ct=meta.get("dfam_ct", ""),
                 )
             )
 
@@ -134,38 +133,6 @@ def best_dfam_hits_by_family(hits: List[DfamHit]) -> dict[str, DfamHit]:
     return best
 
 
-def split_fasta_round_robin(
-    fasta: str | Path,
-    outdir: str | Path,
-    chunks: int,
-) -> list[Path]:
-    from Bio import SeqIO
-
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    handles = []
-    paths = []
-
-    for i in range(chunks):
-        path = outdir / f"chunk_{i + 1:03d}.fa"
-        paths.append(path)
-        handles.append(open(path, "w"))
-
-    try:
-        for idx, rec in enumerate(SeqIO.parse(str(fasta), "fasta")):
-            handle = handles[idx % chunks]
-            SeqIO.write(rec, handle, "fasta")
-    finally:
-        for handle in handles:
-            handle.close()
-
-    return [
-        p for p in paths
-        if p.exists() and p.stat().st_size > 0
-    ]
-
-
 def merge_tblout_files(
     tblouts: list[Path],
     merged_tblout: str | Path,
@@ -181,7 +148,6 @@ def merge_tblout_files(
 
     return merged_tblout
 
-
 def run_nhmmer_parallel_chunks(
     dfam_db: str | Path,
     consensus_fasta: str | Path,
@@ -191,53 +157,95 @@ def run_nhmmer_parallel_chunks(
     cpu_per_job: int = 1,
     max_parallel: int | None = None,
 ) -> Path:
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    """
+    Run nhmmer on a consensus FASTA split into length-balanced chunks.
 
+    The merged output is written to:
+
+        <outdir>/dfam.merged.tblout
+
+    Chunk FASTAs are written to:
+
+        <outdir>/chunks/
+
+    Per-chunk tblout files are written to:
+
+        <outdir>/tblouts/
+    """
+
+    dfam_db = Path(dfam_db)
+    consensus_fasta = Path(consensus_fasta)
     outdir = Path(outdir)
+
     chunks_dir = outdir / "chunks"
     tblout_dir = outdir / "tblouts"
 
     chunks_dir.mkdir(parents=True, exist_ok=True)
     tblout_dir.mkdir(parents=True, exist_ok=True)
 
-    fasta_chunks = split_fasta_round_robin(
-        fasta=consensus_fasta,
+    if chunks < 1:
+        chunks = 1
+
+    fasta_chunks = split_fasta_balanced_by_length(
+        input_fasta=consensus_fasta,
         outdir=chunks_dir,
-        chunks=chunks,
+        n_chunks=chunks,
+        prefix="chunk",
     )
 
+    if not fasta_chunks:
+        merged = outdir / "dfam.merged.tblout"
+        merged.write_text("")
+        return merged
+
     if max_parallel is None:
-        max_parallel = chunks
+        max_parallel = len(fasta_chunks)
 
-    tblouts = []
+    max_parallel = max(1, min(max_parallel, len(fasta_chunks)))
 
-    def _run_one(chunk_fa: Path) -> Path:
-        tblout = tblout_dir / f"{chunk_fa.stem}.tblout"
+    def _run_one(chunk_fasta: Path) -> Path:
+        tblout = tblout_dir / f"{chunk_fasta.stem}.tblout"
 
-        run_nhmmer(
+        return run_nhmmer(
             dfam_db=dfam_db,
-            consensus_fasta=chunk_fa,
+            consensus_fasta=chunk_fasta,
             tblout=tblout,
             nhmmer_bin=nhmmer_bin,
             cpu=cpu_per_job,
         )
 
-        return tblout
+    tblouts: list[Path] = []
 
     with ThreadPoolExecutor(max_workers=max_parallel) as executor:
-        futures = [
-            executor.submit(_run_one, chunk)
+        futures = {
+            executor.submit(_run_one, chunk): chunk
             for chunk in fasta_chunks
-        ]
+        }
+
+        total = len(futures)
+        completed = 0
 
         for future in as_completed(futures):
-            tblouts.append(future.result())
+            chunk = futures[future]
+            tblout = future.result()
+            tblouts.append(tblout)
 
-    tblouts = sorted(tblouts)
+            completed += 1
+
+            print(
+                f"[DRayTE][Dfam] progress "
+                f"{completed}/{total} chunks completed "
+                f"| last={chunk.name}",
+                file=sys.stderr,
+                flush=True,
+            )
 
     merged = outdir / "dfam.merged.tblout"
 
-    return merge_tblout_files(
-        tblouts=tblouts,
-        merged_tblout=merged,
-    )
+    with open(merged, "w") as out:
+        for tblout in sorted(tblouts):
+            with open(tblout) as fh:
+                for line in fh:
+                    out.write(line)
+
+    return merged

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import csv
 import gzip
 import shutil
@@ -170,140 +171,145 @@ def run(config, discovery_result: dict, logger) -> dict:
     filtered_fasta = rmodeler_dir / f"{taxon}-families.filtered.fa"
     final_query_fasta = rmodeler_dir / f"{taxon}-families.mod.fa"
 
-    if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
-        n_kept = filter_fasta_by_length(candidate_library, filtered_fasta, min_length=100)
-        logger.info("Filtered consensuses >=100 bp: %d", n_kept)
+    manifest = outdir / "extension.manifest.json"
+    if manifest.exists():
+        logger.info("Extension manifest already exists; skipping")
+        return json.loads(manifest.read_text())
     else:
-        logger.info("Filtered candidate FASTA already exists: %s", filtered_fasta)
-
-    if not final_query_fasta.exists() or final_query_fasta.stat().st_size == 0:
-        n_renamed = rename_repeatmodeler_headers(filtered_fasta, final_query_fasta, species=taxon)
-        logger.info("Renamed consensus headers: %d", n_renamed)
-    else:
-        logger.info("Normalized candidate FASTA already exists: %s", final_query_fasta)
-
-    blast_query_copy = blastfiles / final_query_fasta.name
-    if not blast_query_copy.exists() or blast_query_copy.stat().st_size == 0:
-        shutil.copy2(final_query_fasta, blast_query_copy)
-
-    blast_out = run_blast(
-        query_fasta=blast_query_copy,
-        genome_fa=genome_fa,
-        threads=config.threads,
-        logger=logger,
-    )
-
-    extracted = run_extract_align(
-        genome_fasta=genome_fa,
-        blast_file=blast_out,
-        library_fasta=final_query_fasta,
-        output_dir=extract_dir,
-        max_hits_per_query=int(config.extra.get("extension_max_hits", 50)),
-        flank_left=int(config.extra.get("extension_left_buffer", 100)),
-        flank_right=int(config.extra.get("extension_right_buffer", 100)),
-    )
-
-    extend_script = config.extra["repeatmodeler_extend_script"]
-    summary_rows: list[dict] = []
-
-    for te_id, cat_file in extracted.items():
-        safe_te_id = safe_filename(te_id)
-        
-        rep_file = final_consensuses / f"{safe_te_id}_rep.fa"
-        te_workdir = extensionwork / safe_te_id
-        te_log = extendlogs / f"{safe_te_id}.extend.log"
-
-        rep_fa = None
-        msa_fa = None
-        png_file = None
-        hit_count = 0
-        consensus_length = 0
-        category = "unknown"
-        status = "ok"
-        error_message = ""
-
-        try:
-            if not rep_file.exists() or rep_file.stat().st_size == 0:
-                run_extend_consensus(
-                    extend_script=extend_script,
-                    genome_2bit=genome_2bit,
-                    family_fasta=cat_file,
-                    workdir=te_workdir,
-                    logfile=te_log,
-                )
-
-            rep_fa, msa_fa, png_file, hit_count, consensus_length = postprocess_extension_outputs(
-                te_id=te_id,
-                te_workdir=te_workdir,
-            )
-
-            category = categorize_extension(hit_count, consensus_length)
-
-            if not rep_fa or not Path(rep_fa).exists() or Path(rep_fa).stat().st_size == 0:
-                status = "failed_extension"
-                error_message = "No rep.fa produced"
-                raise RuntimeError(error_message)
-
-            if rep_fa and rep_fa.exists():
-                if not rep_file.exists() or rep_file.stat().st_size == 0:
-                    shutil.copy2(rep_fa, rep_file)
-
-            target_dir = (
-                rejects if category == "reject"
-                else possible_sd if category == "possible_SD"
-                else likely_tes
-            )
-
-            if rep_fa and rep_fa.exists():
-                dst = target_dir / rep_fa.name
-                if not dst.exists():
-                    shutil.copy2(rep_fa, dst)
-
-            if msa_fa and msa_fa.exists():
-                dst = target_dir / msa_fa.name
-                if not dst.exists():
-                    shutil.copy2(msa_fa, dst)
-
-            if png_file and png_file.exists():
-                dst = target_dir / png_file.name
-                if not dst.exists():
-                    shutil.copy2(png_file, dst)
-
-        except Exception as exc:
-            status = "failed_extension"
-            error_message = str(exc)
-            logger.warning("Could not extend %s: %s", cat_file, exc)
-
-        summary_rows.append(
-            {
-                "te_id": te_id,
-                "cat_file": str(cat_file),
-                "status": status,
-                "category": category,
-                "rep_fa": str(rep_fa) if rep_fa else "",
-                "msa_fa": str(msa_fa) if msa_fa else "",
-                "png_file": str(png_file) if png_file else "",
-                "hit_count": hit_count,
-                "consensus_length": consensus_length,
-                "error_message": error_message,
-            }
+        if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
+            n_kept = filter_fasta_by_length(candidate_library, filtered_fasta, min_length=100)
+            logger.info("Filtered consensuses >=100 bp: %d", n_kept)
+        else:
+            logger.info("Filtered candidate FASTA already exists: %s", filtered_fasta)
+    
+        if not final_query_fasta.exists() or final_query_fasta.stat().st_size == 0:
+            n_renamed = rename_repeatmodeler_headers(filtered_fasta, final_query_fasta, species=taxon)
+            logger.info("Renamed consensus headers: %d", n_renamed)
+        else:
+            logger.info("Normalized candidate FASTA already exists: %s", final_query_fasta)
+    
+        blast_query_copy = blastfiles / final_query_fasta.name
+        if not blast_query_copy.exists() or blast_query_copy.stat().st_size == 0:
+            shutil.copy2(final_query_fasta, blast_query_copy)
+    
+        blast_out = run_blast(
+            query_fasta=blast_query_copy,
+            genome_fa=genome_fa,
+            threads=config.threads,
+            logger=logger,
         )
-
-    summary_file = outdir / "extension_summary.tsv"
-    write_summary(summary_file, summary_rows)
-
-    n_ok = sum(1 for row in summary_rows if row["status"] == "ok")
-    n_fail = sum(1 for row in summary_rows if row["status"] != "ok")
-    logger.info("Extension stage completed: %d ok, %d failed", n_ok, n_fail)
-
-    result = {
-        "stage": "extension",
-        "outdir": str(outdir),
-        "extended_library_dir": str(final_consensuses),
-        "summary_tsv": str(summary_file),
-        "n_ok": n_ok,
-        "n_failed": n_fail,
-    }
-
-    return result
+    
+        extracted = run_extract_align(
+            genome_fasta=genome_fa,
+            blast_file=blast_out,
+            library_fasta=final_query_fasta,
+            output_dir=extract_dir,
+            max_hits_per_query=int(config.extra.get("extension_max_hits", 50)),
+            flank_left=int(config.extra.get("extension_left_buffer", 100)),
+            flank_right=int(config.extra.get("extension_right_buffer", 100)),
+        )
+    
+        extend_script = config.extra["repeatmodeler_extend_script"]
+        summary_rows: list[dict] = []
+    
+        for te_id, cat_file in extracted.items():
+            safe_te_id = safe_filename(te_id)
+            
+            rep_file = final_consensuses / f"{safe_te_id}_rep.fa"
+            te_workdir = extensionwork / safe_te_id
+            te_log = extendlogs / f"{safe_te_id}.extend.log"
+    
+            rep_fa = None
+            msa_fa = None
+            png_file = None
+            hit_count = 0
+            consensus_length = 0
+            category = "unknown"
+            status = "ok"
+            error_message = ""
+    
+            try:
+                if not rep_file.exists() or rep_file.stat().st_size == 0:
+                    run_extend_consensus(
+                        extend_script=extend_script,
+                        genome_2bit=genome_2bit,
+                        family_fasta=cat_file,
+                        workdir=te_workdir,
+                        logfile=te_log,
+                    )
+    
+                rep_fa, msa_fa, png_file, hit_count, consensus_length = postprocess_extension_outputs(
+                    te_id=te_id,
+                    te_workdir=te_workdir,
+                )
+    
+                category = categorize_extension(hit_count, consensus_length)
+    
+                if not rep_fa or not Path(rep_fa).exists() or Path(rep_fa).stat().st_size == 0:
+                    status = "failed_extension"
+                    error_message = "No rep.fa produced"
+                    raise RuntimeError(error_message)
+    
+                if rep_fa and rep_fa.exists():
+                    if not rep_file.exists() or rep_file.stat().st_size == 0:
+                        shutil.copy2(rep_fa, rep_file)
+    
+                target_dir = (
+                    rejects if category == "reject"
+                    else possible_sd if category == "possible_SD"
+                    else likely_tes
+                )
+    
+                if rep_fa and rep_fa.exists():
+                    dst = target_dir / rep_fa.name
+                    if not dst.exists():
+                        shutil.copy2(rep_fa, dst)
+    
+                if msa_fa and msa_fa.exists():
+                    dst = target_dir / msa_fa.name
+                    if not dst.exists():
+                        shutil.copy2(msa_fa, dst)
+    
+                if png_file and png_file.exists():
+                    dst = target_dir / png_file.name
+                    if not dst.exists():
+                        shutil.copy2(png_file, dst)
+    
+            except Exception as exc:
+                status = "failed_extension"
+                error_message = str(exc)
+                logger.warning("Could not extend %s: %s", cat_file, exc)
+    
+            summary_rows.append(
+                {
+                    "te_id": te_id,
+                    "cat_file": str(cat_file),
+                    "status": status,
+                    "category": category,
+                    "rep_fa": str(rep_fa) if rep_fa else "",
+                    "msa_fa": str(msa_fa) if msa_fa else "",
+                    "png_file": str(png_file) if png_file else "",
+                    "hit_count": hit_count,
+                    "consensus_length": consensus_length,
+                    "error_message": error_message,
+                }
+            )
+    
+        summary_file = outdir / "extension_summary.tsv"
+        write_summary(summary_file, summary_rows)
+    
+        n_ok = sum(1 for row in summary_rows if row["status"] == "ok")
+        n_fail = sum(1 for row in summary_rows if row["status"] != "ok")
+        logger.info("Extension stage completed: %d ok, %d failed", n_ok, n_fail)
+    
+        result = {
+            "stage": "extension",
+            "outdir": str(outdir),
+            "extended_library_dir": str(final_consensuses),
+            "summary_tsv": str(summary_file),
+            "n_ok": n_ok,
+            "n_failed": n_fail,
+        }
+    
+        return result
 

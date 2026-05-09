@@ -51,6 +51,11 @@ class Family:
     helitron_signal: bool = False
 
     tsd_present: bool = False
+    tsd_seq: str = ""
+    tsd_len: int = 0
+    tsd_support: float = 0.0
+    tsd_consensus: str = ""
+    tsd_identity: float = 0.0
     polyA_present: bool = False
 
     orf_count: int = 0
