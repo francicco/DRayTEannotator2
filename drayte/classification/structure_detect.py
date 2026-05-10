@@ -9,7 +9,7 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 
 from .ids import clean_family_id
-
+from .structure_refine import refine_tir_detection
 
 @dataclass
 class TirDetection:
@@ -415,6 +415,11 @@ def _tir_worker(args):
         )
 
         if det is None:
+            continue
+
+        det = refine_tir_detection(det)
+
+        if not det.tir_present:
             continue
 
         if (

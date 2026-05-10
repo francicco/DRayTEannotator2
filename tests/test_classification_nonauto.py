@@ -70,3 +70,39 @@ def test_autonomous_line_is_not_sine_candidate():
     )
 
     assert score_sine_candidate(f) is None
+
+
+def test_sine_excludes_tir():
+    f = Family(
+        family_id="sine_like_but_tir",
+        consensus_len=300,
+        n_copies=20,
+        polyA_present=True,
+        tir_present=True,
+        orf_count=0,
+        orf_max_len=0,
+        domains=set(),
+    )
+
+    assert score_sine_candidate(f) is None
+
+
+def test_mite_tsd_superfamily_hint():
+    f = Family(
+        family_id="mite_ta",
+        consensus_len=450,
+        n_copies=30,
+        tir_present=True,
+        tsd_present=True,
+        tsd_len=2,
+        tsd_seq="TA",
+        tsd_support=0.6,
+        orf_count=0,
+        orf_max_len=0,
+        domains=set(),
+    )
+
+    call = score_mite_candidate(f)
+
+    assert call is not None
+    assert "tsd_superfamily_hint=TcMar-Mariner" in call.evidence

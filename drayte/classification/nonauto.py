@@ -39,16 +39,54 @@ def is_short_element(
     return f.consensus_len > 0 and f.consensus_len <= max_len
 
 
+def confidence_from_score(score: float) -> str:
+    if score >= 0.90:
+        return "HIGH"
+
+    if score >= 0.70:
+        return "MEDIUM"
+
+    return "LOW"
+
+
+def infer_mite_superfamily_from_tsd(f: Family) -> str:
+    tsd_seq = (getattr(f, "tsd_seq", "") or "").upper()
+    tsd_len = int(getattr(f, "tsd_len", 0) or 0)
+
+    if tsd_seq == "TA":
+        return "TcMar-Mariner"
+
+    if tsd_seq == "TTAA":
+        return "piggyBac"
+
+    if tsd_len == 8:
+        return "hAT"
+
+    if tsd_len in {9, 10, 11}:
+        return "PIF-Harbinger"
+
+    if tsd_seq in {"TTA", "TAA"} or tsd_len == 3:
+        return "PIF-Harbinger_or_hAT_like"
+
+    return "Unknown"
+
+
 def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
     """
     Conservative SINE candidate rule.
 
-    This does not prove SINE status. It identifies short, non-coding,
-    polyA-associated retroelement-like families for later validation.
+    SINEs are non-LTR retrotransposon-derived non-autonomous elements.
+    TIR presence is an explicit exclusion because SINEs are not TIR elements.
     """
 
-    evidence = []
+    evidence: list[str] = []
     score = 0.0
+
+    if f.tir_present:
+        return None
+
+    if f.ltr_present:
+        return None
 
     if not is_short_element(f, 700):
         return None
@@ -68,11 +106,11 @@ def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
     evidence.append("no_coding_domains")
     score += 0.20
 
-    if f.polyA_present:
-        evidence.append("polyA_present")
-        score += 0.25
-    else:
+    if not f.polyA_present:
         return None
+
+    evidence.append("polyA_present")
+    score += 0.25
 
     if f.homology_order == "SINE" or f.dfam_order == "SINE":
         evidence.append("sine_homology")
@@ -84,17 +122,11 @@ def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
 
     score = min(score, 0.99)
 
-    confidence = "LOW"
-    if score >= 0.75:
-        confidence = "MEDIUM"
-    if score >= 0.90:
-        confidence = "HIGH"
-
     return NonAutonomousCall(
         family_id=f.family_id,
         candidate_type="SINE_candidate",
         score=round(score, 3),
-        confidence=confidence,
+        confidence=confidence_from_score(score),
         evidence=";".join(evidence),
     )
 
@@ -103,11 +135,11 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
     """
     Conservative MITE candidate rule.
 
-    Baseline MITE evidence is short + TIR + non-coding.
-    HIGH confidence requires TSD support or TIR homology/rescue.
+    MITEs are short non-autonomous TIR elements. TSD evidence upgrades
+    confidence and may suggest the autonomous parent superfamily.
     """
 
-    evidence = []
+    evidence: list[str] = []
     score = 0.0
 
     if not is_short_element(f, 800):
@@ -135,8 +167,47 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
     score += 0.10
 
     if f.tsd_present:
+        tsd_len = int(getattr(f, "tsd_len", 0) or 0)
+        tsd_seq = (getattr(f, "tsd_seq", "") or "NA").upper()
+        tsd_support = float(getattr(f, "tsd_support", 0.0) or 0.0)
+
         evidence.append("tsd_present")
-        score += 0.20
+        evidence.append(f"tsd_len={tsd_len}")
+        evidence.append(f"tsd_seq={tsd_seq}")
+        evidence.append(f"tsd_support={tsd_support}")
+
+        inferred_sf = infer_mite_superfamily_from_tsd(f)
+
+        if inferred_sf == "TcMar-Mariner":
+            score += 0.25
+            evidence.append("tsd_superfamily_hint=TcMar-Mariner")
+
+        elif inferred_sf == "piggyBac":
+            score += 0.30
+            evidence.append("tsd_superfamily_hint=piggyBac")
+
+        elif inferred_sf == "PIF-Harbinger":
+            score += 0.25
+            evidence.append("tsd_superfamily_hint=PIF-Harbinger")
+
+        elif inferred_sf == "PIF-Harbinger_or_hAT_like":
+            score += 0.20
+            evidence.append("tsd_superfamily_hint=PIF-Harbinger_or_hAT_like")
+
+        elif inferred_sf == "hAT":
+            score += 0.25
+            evidence.append("tsd_superfamily_hint=hAT")
+
+        else:
+            score += 0.10
+
+        if tsd_support >= 0.30:
+            evidence.append("tsd_support>=0.30")
+            score += 0.05
+
+        if tsd_support >= 0.50:
+            evidence.append("tsd_support>=0.50")
+            score += 0.05
 
     if (
         f.homology_order == "TIR"
@@ -148,28 +219,21 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
 
     score = min(score, 0.99)
 
-    confidence = "LOW"
-
-    if score >= 0.70:
-        confidence = "MEDIUM"
-
-    if score >= 0.90:
-        confidence = "HIGH"
-
     return NonAutonomousCall(
         family_id=f.family_id,
         candidate_type="MITE_candidate",
         score=round(score, 3),
-        confidence=confidence,
+        confidence=confidence_from_score(score),
         evidence=";".join(evidence),
     )
+
 
 def score_trim_candidate(f: Family) -> NonAutonomousCall | None:
     """
     TRIM candidate: short LTR-like non-autonomous element.
     """
 
-    evidence = []
+    evidence: list[str] = []
     score = 0.0
 
     if not is_short_element(f, 1500):
@@ -196,19 +260,55 @@ def score_trim_candidate(f: Family) -> NonAutonomousCall | None:
 
     score = min(score, 0.99)
 
-    confidence = "LOW"
-    if score >= 0.70:
-        confidence = "MEDIUM"
-    if score >= 0.90:
-        confidence = "HIGH"
-
     return NonAutonomousCall(
         family_id=f.family_id,
         candidate_type="TRIM_candidate",
         score=round(score, 3),
-        confidence=confidence,
+        confidence=confidence_from_score(score),
         evidence=";".join(evidence),
     )
+
+
+def arbitrate_nonautonomous_calls(
+    calls: list[NonAutonomousCall],
+) -> list[NonAutonomousCall]:
+    """
+    Keep one non-autonomous call per family.
+
+    Higher score wins. On ties, prefer structurally diagnostic classes.
+    """
+
+    priority = {
+        "MITE_candidate": 4,
+        "TRIM_candidate": 3,
+        "LARD_candidate": 3,
+        "SINE_candidate": 2,
+    }
+
+    best_by_family: dict[str, NonAutonomousCall] = {}
+
+    for call in calls:
+        current = best_by_family.get(call.family_id)
+
+        if current is None:
+            best_by_family[call.family_id] = call
+            continue
+
+        if call.score > current.score:
+            best_by_family[call.family_id] = call
+            continue
+
+        if call.score == current.score:
+            if priority.get(call.candidate_type, 0) > priority.get(
+                current.candidate_type,
+                0,
+            ):
+                best_by_family[call.family_id] = call
+
+    return [
+        best_by_family[k]
+        for k in sorted(best_by_family)
+    ]
 
 
 def infer_nonautonomous_candidates(
@@ -227,4 +327,5 @@ def infer_nonautonomous_candidates(
             if call is not None:
                 calls.append(call)
 
-    return calls
+    return arbitrate_nonautonomous_calls(calls)
+
