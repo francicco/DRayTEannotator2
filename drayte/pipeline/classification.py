@@ -107,6 +107,7 @@ def run(
         logger.info("Detecting TIR structure evidence")
         tir_detections = detect_tirs_from_fasta(
             library,
+            threads=config.threads,
             logger=logger,
         )
         write_tir_structure_tsv(tir_detections, structure_tsv)

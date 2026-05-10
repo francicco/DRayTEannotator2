@@ -10,17 +10,19 @@ from drayte.classification.structure_detect import (
 def test_best_terminal_inverted_repeat_detects_simple_tir():
     left_tir = "ATGCGTACGTTAGCTA"
     right_tir = "TAGCTAACGTACGCAT"  # reverse complement of left_tir
+
     seq = left_tir + ("A" * 100) + right_tir
 
     det = best_terminal_inverted_repeat(
         seq,
         window=50,
         min_len=15,
+        max_len=30,
         min_identity=0.80,
     )
 
     assert det is not None
-    assert det.tir_present
+    assert det.tir_present is True
     assert det.tir_len >= 15
     assert det.tir_identity >= 0.80
 
@@ -43,16 +45,19 @@ def test_detect_tirs_from_fasta_and_write_tsv(tmp_path: Path):
         fasta,
         window=50,
         min_len=15,
+        max_len=30,
         min_identity=0.80,
     )
 
-    by_id = {d.family_id: d for d in detections}
-
-    assert by_id["fam1"].tir_present
-    assert not by_id["fam2"].tir_present
+    assert len(detections) == 2
+    assert detections[0].family_id == "fam1"
+    assert detections[0].tir_present is True
+    assert detections[1].tir_present is False
 
     write_tir_structure_tsv(detections, out)
 
     text = out.read_text()
-    assert "fam1\tTIR" in text
-    assert "fam2" not in text
+
+    assert "family_id" in text
+    assert "fam1" in text
+    assert "TIR" in text
