@@ -247,10 +247,11 @@ def build_families_from_evidence(
                 polyA_present=struct.get("polyA_present", False),
                 orf_count=orfs["orf_count"],
                 orf_max_len=orfs["orf_max_len"],
-                tsd_seq="",
-                tsd_len=0,
-                tsd_support=0.0,
+                tsd_seq=struct.get("tsd_seq", ""),
+                tsd_len=struct.get("tsd_len", 0),
+                tsd_support=struct.get("tsd_support", 0.0),
             )
         )
 
     return families
+

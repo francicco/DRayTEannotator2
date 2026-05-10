@@ -11,11 +11,11 @@ from .tsd_from_repam import RepamTSDCall
 @dataclass
 class StructureEvidence:
     family_id: str
-
+    consensus_len: int | None = None
     tir_present: bool = False
     tir_len: int = 0
     tir_identity: float = 0.0
-    tir_confidence: str = "LOW"
+    tir_confidence: str = "NONE"
 
     tsd_present: bool = False
     tsd_len: int = 0
@@ -25,8 +25,9 @@ class StructureEvidence:
     structure_class: str = "NONE"
     structural_score: float = 0.0
     mite_candidate: bool = False
-    confidence: str = "LOW"
 
+    mite_like_structure: bool = False
+    confidence: str = "NONE"
 
 def structure_score(
     tir_present: bool,
@@ -163,7 +164,7 @@ def merge_structure_evidence(
         merged.append(
             StructureEvidence(
                 family_id=family_id,
-
+                consensus_len=consensus_len,
                 tir_present=tir_present,
                 tir_len=tir.tir_len if tir else 0,
                 tir_identity=(
@@ -196,19 +197,17 @@ def merge_structure_evidence(
                 ),
 
                 structural_score=score,
-
                 mite_candidate=infer_mite_candidate(
                     consensus_len=consensus_len,
                     tir_present=tir_present,
                     tsd_present=tsd_present,
                 ),
-
+                mite_like_structure=bool(tir_present and tsd_present),
                 confidence=confidence_from_score(score),
             )
         )
 
     return merged
-
 
 def write_structure_summary(
     structures: list[StructureEvidence],
@@ -217,7 +216,7 @@ def write_structure_summary(
 
     fields = [
         "family_id",
-
+        "consensus_len",
         "tir_present",
         "tir_len",
         "tir_identity",
@@ -231,6 +230,7 @@ def write_structure_summary(
         "structure_class",
         "structural_score",
         "mite_candidate",
+        "mite_like_structure",
         "confidence",
     ]
 
