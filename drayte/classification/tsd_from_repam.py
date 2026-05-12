@@ -30,6 +30,9 @@ class CopyTSDHit:
     tsd_seq: str
     left_pos: int
     right_pos: int
+    left_offset: int = 0
+    right_offset: int = 0
+    boundary_distance: int = 0
 
 
 @dataclass
@@ -43,6 +46,15 @@ class RepamTSDCall:
     n_copies_with_tsd: int
     n_distinct_tsd_hits: int
     source: str = "repam"
+
+    # TSD support is split into length-level and exact-sequence support.
+    # The public tsd_support field is kept for backwards compatibility and
+    # stores the biologically more useful length-level support.
+    tsd_len_support: float = 0.0
+    tsd_exact_support: float = 0.0
+    tsd_confidence: str = "NONE"
+    n_copies_supporting_len: int = 0
+    n_copies_supporting_exact: int = 0
 
 
 def is_low_complexity(
@@ -165,17 +177,19 @@ def best_tsd_for_copy(
     extended_right: int,
     min_len: int = 2,
     max_len: int = 15,
+    boundary_slop: int = 3,
 ) -> CopyTSDHit | None:
     """
-    Infer TSD for one extended copy.
+    Infer a TSD for one REPAM-extended copy.
 
-    Sequence layout is assumed to be:
+    Sequence layout is assumed to be approximately:
 
         left_extension | TE_body | right_extension
 
-    TSD is expected immediately outside the TE body:
-
-        left_flank ... TSD | TE | TSD ... right_flank
+    In practice, consensus boundaries are often shifted by a few bases.
+    Therefore the search allows a small independent offset around both
+    predicted boundaries. The best hit is the longest exact non-low-complexity
+    repeat with the smallest total boundary displacement.
     """
 
     seq = seq.upper()
@@ -189,29 +203,62 @@ def best_tsd_for_copy(
     if te_start <= 0 or te_end <= te_start:
         return None
 
+    candidates: list[CopyTSDHit] = []
+
     for k in range(max_len, min_len - 1, -1):
-        if te_start < k:
-            continue
+        for left_offset in range(-boundary_slop, boundary_slop + 1):
+            left_boundary = te_start + left_offset
 
-        if te_end + k > len(seq):
-            continue
+            if left_boundary < k:
+                continue
 
-        left = seq[te_start - k:te_start]
-        right = seq[te_end:te_end + k]
+            for right_offset in range(-boundary_slop, boundary_slop + 1):
+                right_boundary = te_end + right_offset
 
-        if "N" in left or "N" in right:
-            continue
+                if right_boundary < 0:
+                    continue
 
-        if left == right and not is_low_complexity(left):
-            return CopyTSDHit(
-                seq_id="",
-                tsd_len=k,
-                tsd_seq=left,
-                left_pos=te_start - k + 1,
-                right_pos=te_end + 1,
-            )
+                if right_boundary + k > len(seq):
+                    continue
 
-    return None
+                left = seq[left_boundary - k:left_boundary]
+                right = seq[right_boundary:right_boundary + k]
+
+                if "N" in left or "N" in right:
+                    continue
+
+                if left != right:
+                    continue
+
+                if is_low_complexity(left):
+                    continue
+
+                candidates.append(
+                    CopyTSDHit(
+                        seq_id="",
+                        tsd_len=k,
+                        tsd_seq=left,
+                        left_pos=left_boundary - k + 1,
+                        right_pos=right_boundary + 1,
+                        left_offset=left_offset,
+                        right_offset=right_offset,
+                        boundary_distance=abs(left_offset) + abs(right_offset),
+                    )
+                )
+
+
+    if not candidates:
+        return None
+
+    return sorted(
+        candidates,
+        key=lambda x: (
+            x.boundary_distance,
+            abs(x.left_offset - x.right_offset),
+            -x.tsd_len,
+            x.tsd_seq,
+        ),
+    )[0]
 
 
 def infer_family_tsd_from_repam(
@@ -222,6 +269,7 @@ def infer_family_tsd_from_repam(
     max_len: int = 15,
     min_copies: int = 3,
     min_support: float = 0.30,
+    boundary_slop: int = 3,
 ) -> RepamTSDCall:
     repam_ranges = Path(repam_ranges)
     repam_repseq = Path(repam_repseq)
@@ -249,6 +297,7 @@ def infer_family_tsd_from_repam(
             extended_right=rg.extended_right,
             min_len=min_len,
             max_len=max_len,
+            boundary_slop=boundary_slop,
         )
 
         if hit is None:
@@ -267,22 +316,53 @@ def infer_family_tsd_from_repam(
             n_copies_checked=n_copies_checked,
             n_copies_with_tsd=len(observed),
             n_distinct_tsd_hits=len(set(observed)),
+            tsd_len_support=0.0,
+            tsd_exact_support=0.0,
+            tsd_confidence="NONE",
+            n_copies_supporting_len=0,
+            n_copies_supporting_exact=0,
         )
 
-    counts = Counter(observed)
-    (best_len, best_seq), best_n = counts.most_common(1)[0]
+    exact_counts = Counter(observed)
+    len_counts = Counter(length for length, _seq in observed)
 
-    support = best_n / n_copies_checked
+    best_len, best_len_n = len_counts.most_common(1)[0]
+    seq_counts_for_best_len = Counter(
+        seq for length, seq in observed
+        if length == best_len
+    )
+    best_seq, best_exact_n = seq_counts_for_best_len.most_common(1)[0]
+
+    len_support = best_len_n / n_copies_checked
+    exact_support = best_exact_n / n_copies_checked
+
+    tsd_present = len_support >= min_support
+
+    if not tsd_present:
+        confidence = "NONE"
+    elif exact_support >= 0.50 or (len_support >= 0.70 and exact_support >= 0.30):
+        confidence = "HIGH"
+    elif len_support >= 0.50 or exact_support >= 0.30:
+        confidence = "MEDIUM"
+    else:
+        confidence = "LOW"
 
     return RepamTSDCall(
         family_id=family_id,
-        tsd_present=support >= min_support,
+        tsd_present=tsd_present,
         tsd_len=best_len,
         tsd_seq=best_seq,
-        tsd_support=round(support, 3),
+        # Keep tsd_support as the length-level support. TSD length is often
+        # more useful than exact sequence for TIR superfamily inference.
+        tsd_support=round(len_support, 3),
         n_copies_checked=n_copies_checked,
         n_copies_with_tsd=len(observed),
-        n_distinct_tsd_hits=len(counts),
+        n_distinct_tsd_hits=len(exact_counts),
+        tsd_len_support=round(len_support, 3),
+        tsd_exact_support=round(exact_support, 3),
+        tsd_confidence=confidence,
+        n_copies_supporting_len=best_len_n,
+        n_copies_supporting_exact=best_exact_n,
     )
 
 
@@ -292,6 +372,7 @@ def infer_tsds_from_extensionwork(
     max_len: int = 15,
     min_copies: int = 3,
     min_support: float = 0.30,
+    boundary_slop: int = 3,
 ) -> list[RepamTSDCall]:
     extensionwork_dir = Path(extensionwork_dir)
 
@@ -319,6 +400,7 @@ def infer_tsds_from_extensionwork(
                 max_len=max_len,
                 min_copies=min_copies,
                 min_support=min_support,
+                boundary_slop=boundary_slop,
             )
         )
 
@@ -339,6 +421,11 @@ def write_repam_tsd_tsv(
         "n_copies_with_tsd",
         "n_distinct_tsd_hits",
         "source",
+        "tsd_len_support",
+        "tsd_exact_support",
+        "tsd_confidence",
+        "n_copies_supporting_len",
+        "n_copies_supporting_exact",
     ]
 
     with open(outfile, "w") as out:

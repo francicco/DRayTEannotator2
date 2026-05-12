@@ -48,6 +48,17 @@ class Family:
 
     ltr_present: bool = False
     tir_present: bool = False
+    tir_len: int = 0
+    tir_identity: float = 0.0
+    tir_confidence: str = "LOW"
+    tir_5p_motif: str = "NA"
+    tir_3p_motif: str = "NA"
+    tir_terminal_motif: str = "NA"
+    tir_grade: str = "ABSENT"
+    structural_type: str = "unknown"
+    tir_tsd_element: bool = False
+    structural_superfamily_hint: str = "unknown"
+    structural_superfamily_confidence: str = "NONE"
     helitron_signal: bool = False
 
     tsd_present: bool = False
@@ -57,6 +68,14 @@ class Family:
     tsd_consensus: str = ""
     tsd_identity: float = 0.0
     polyA_present: bool = False
+    polyA_tail_len: int = 0
+    polyA_fraction: float = 0.0
+    poliii_a_box: bool = False
+    poliii_b_box: bool = False
+    poliii_score: float = 0.0
+    sine_score: float = 0.0
+    sine_candidate: bool = False
+    sine_confidence: str = "LOW"
 
     orf_count: int = 0
     orf_max_len: int = 0

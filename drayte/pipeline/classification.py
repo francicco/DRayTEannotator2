@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
-from drayte.classification.features import build_families_from_evidence
+from drayte.classification.complexity_detect import detect_complexity_from_fasta
+from drayte.classification.features import (
+    build_families_from_evidence,
+    consensus_lengths,
+)
 from drayte.classification.run import classify_families
 from drayte.classification.io import (
     write_classification_tsv,
@@ -11,9 +14,17 @@ from drayte.classification.io import (
 )
 from drayte.classification.structure_detect import (
     detect_tirs_from_fasta,
-    write_tir_structure_tsv,
 )
 from drayte.classification.structure import load_structure_evidence_tsv
+from drayte.classification.structure_merge import (
+    merge_structure_evidence,
+    write_structure_summary,
+)
+from drayte.classification.tsd_from_repam import (
+    infer_tsds_from_extensionwork,
+    write_repam_tsd_tsv,
+)
+from drayte.classification.sine_detect import detect_sines_from_fasta
 from drayte.classification.hmmer import parse_domtblout
 from drayte.classification.pipeline import run_domain_annotation
 from drayte.classification.dfam import (
@@ -27,11 +38,13 @@ from drayte.classification.mmseqs import (
     sequence_lengths_by_clean_id,
 )
 from drayte.classification.write_library import rewrite_fasta_headers
+from drayte.classification.structure_inputs import resolve_structure_input_fasta
 from drayte.utils.paths import ensure_dir, stage_dir
 from drayte.classification.dfammap import parse_dfam_hmm_metadata
 from drayte.classification.nonauto import (
     infer_nonautonomous_candidates,
 )
+from drayte.classification.ltr_detect import detect_ltrs_from_fasta
 
 def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
@@ -97,20 +110,97 @@ def run(
     #
     # Structure evidence
     #
+    # Build one merged structure_summary file that contains both terminal TIR
+    # calls and REPAM-derived TSD support. load_structure_evidence_tsv() can
+    # read this wide table and convert it into evidence objects for the
+    # downstream Family model.
 
-    structure_tsv = outdir / f"{species}.structure.tsv"
+    structure_tsv = outdir / f"{species}.structure_summary.tsv"
+    repam_tsd_tsv = outdir / f"{species}.repam_tsd.tsv"
+
+    # Structural evidence is generated for the broad discovery/extension
+    # family universe, not only the curated final library. The curated library
+    # can omit families that still have REPAM/TSD evidence in extensionwork.
+    structure_library = resolve_structure_input_fasta(
+        config=config,
+        classification_cfg=classification_cfg,
+        outdir=outdir,
+        fallback_fasta=library,
+        logger=logger,
+    )
+
+    legacy_structure_tsv = outdir / f"{species}.structure.tsv"
+
+    logger.info("Detecting low-complexity/simple-repeat evidence")
+    complexity_detections = detect_complexity_from_fasta(structure_library)
 
     if structure_tsv.exists() and structure_tsv.stat().st_size > 0:
-        logger.info("Parsing cached structure evidence: %s", structure_tsv)
+        logger.info("Parsing cached merged structure evidence: %s", structure_tsv)
         structure_evidence = load_structure_evidence_tsv(structure_tsv)
+
+    elif legacy_structure_tsv.exists() and legacy_structure_tsv.stat().st_size > 0:
+        logger.info(
+            "Parsing legacy structure evidence: %s",
+            legacy_structure_tsv,
+        )
+        structure_evidence = load_structure_evidence_tsv(legacy_structure_tsv)
+        structure_tsv = legacy_structure_tsv
+
     else:
-        logger.info("Detecting TIR structure evidence")
+        logger.info("Detecting terminal TIR structure evidence")
         tir_detections = detect_tirs_from_fasta(
-            library,
+            structure_library,
             threads=config.threads,
             logger=logger,
         )
-        write_tir_structure_tsv(tir_detections, structure_tsv)
+
+        logger.info("Detecting first-pass structural SINE evidence")
+        sine_detections = detect_sines_from_fasta(
+            structure_library,
+            max_len=int(classification_cfg.get("sine_max_len", 700)),
+            tail_window=int(classification_cfg.get("sine_tail_window", 80)),
+            head_window=int(classification_cfg.get("sine_head_window", 120)),
+            min_poly_run=int(classification_cfg.get("sine_min_poly_run", 10)),
+            min_tail_at_fraction=float(classification_cfg.get("sine_min_tail_at_fraction", 0.65)),
+            min_score=float(classification_cfg.get("sine_min_score", 0.70)),
+        )
+
+        logger.info("Detecting terminal LTR/TRIM/LARD structure evidence")
+        ltr_detections = detect_ltrs_from_fasta(structure_library)
+
+        extensionwork_dir = Path(
+            classification_cfg.get(
+                "repam_extensionwork_dir",
+                config.outdir_path / "extension" / "extensionwork",
+            )
+        )
+
+        if extensionwork_dir.exists():
+            logger.info("Inferring REPAM TSD evidence from %s", extensionwork_dir)
+            tsd_calls = infer_tsds_from_extensionwork(
+                extensionwork_dir=extensionwork_dir,
+                min_len=int(classification_cfg.get("tsd_min_len", 2)),
+                max_len=int(classification_cfg.get("tsd_max_len", 15)),
+                min_copies=int(classification_cfg.get("tsd_min_copies", 3)),
+                min_support=float(classification_cfg.get("tsd_min_support", 0.30)),
+            )
+            write_repam_tsd_tsv(tsd_calls, repam_tsd_tsv)
+        else:
+            logger.info(
+                "No REPAM extensionwork directory found; TSD evidence unavailable: %s",
+                extensionwork_dir,
+            )
+            tsd_calls = []
+
+        merged_structure = merge_structure_evidence(
+            complexity_calls=complexity_detections,
+            tir_calls=tir_detections,
+            tsd_calls=tsd_calls,
+            sine_calls=sine_detections,
+            ltr_calls=ltr_detections,
+            consensus_lengths=consensus_lengths(structure_library),
+        )
+        write_structure_summary(merged_structure, structure_tsv)
         structure_evidence = load_structure_evidence_tsv(structure_tsv)
 
     logger.info("Loaded %d structure evidence records", len(structure_evidence))

@@ -469,7 +469,7 @@ def detect_tirs_from_fasta(
     
         else:
             #windows = [60, 90, 120, 180, 250]
-            windows = [60, 90]
+            windows = [5, 10, 20, 60, 80]
 
     records = list(SeqIO.parse(str(fasta), "fasta"))
     total = len(records)

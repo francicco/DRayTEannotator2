@@ -49,7 +49,40 @@ def confidence_from_score(score: float) -> str:
     return "LOW"
 
 
+def tir_grade(f: Family) -> str:
+    """
+    Convert raw TIR evidence into a biological confidence grade.
+
+    This is deliberately stricter than a binary TIR flag. Short low-complexity
+    inverted repeats can occur by chance in short consensuses, so MITE calling
+    should prefer terminal, sufficiently long, high-identity TIRs.
+    """
+
+    if not f.tir_present:
+        return "ABSENT"
+
+    conf = (getattr(f, "tir_confidence", "LOW") or "LOW").upper()
+    tir_len = int(getattr(f, "tir_len", 0) or 0)
+    tir_identity = float(getattr(f, "tir_identity", 0.0) or 0.0)
+
+    if conf == "HIGH" and tir_len >= 16 and tir_identity >= 0.90:
+        return "STRONG"
+
+    if conf in {"HIGH", "MEDIUM"} and tir_len >= 14 and tir_identity >= 0.85:
+        return "MODERATE"
+
+    return "WEAK"
+
+
 def infer_mite_superfamily_from_tsd(f: Family) -> str:
+    """
+    Infer only a structural superfamily hint from TSD pattern.
+
+    This should not be treated as a definitive taxonomic assignment unless
+    supported by homology/domain evidence. TSD length is useful for TIR
+    elements, but several superfamilies overlap.
+    """
+
     tsd_seq = (getattr(f, "tsd_seq", "") or "").upper()
     tsd_len = int(getattr(f, "tsd_len", 0) or 0)
 
@@ -57,16 +90,19 @@ def infer_mite_superfamily_from_tsd(f: Family) -> str:
         return "TcMar-Mariner"
 
     if tsd_seq == "TTAA":
-        return "piggyBac"
+        return "piggyBac_like"
+
+    if tsd_seq == "TAA" or tsd_len == 3:
+        return "PIF-Harbinger_or_CACTA_like"
 
     if tsd_len == 8:
-        return "hAT"
+        return "hAT_or_P_or_Merlin_like"
 
     if tsd_len in {9, 10, 11}:
-        return "PIF-Harbinger"
+        return "Mutator_like"
 
-    if tsd_seq in {"TTA", "TAA"} or tsd_len == 3:
-        return "PIF-Harbinger_or_hAT_like"
+    if tsd_len in {2, 3}:
+        return "CACTA_or_PIF-Harbinger_like"
 
     return "Unknown"
 
@@ -75,8 +111,9 @@ def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
     """
     Conservative SINE candidate rule.
 
-    SINEs are non-LTR retrotransposon-derived non-autonomous elements.
-    TIR presence is an explicit exclusion because SINEs are not TIR elements.
+    SINEs are short non-autonomous class-I elements derived from Pol-III RNAs.
+    They should not have terminal inverted repeats. A TIR call is therefore a
+    hard exclusion, not merely competing evidence.
     """
 
     evidence: list[str] = []
@@ -92,13 +129,13 @@ def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
         return None
 
     evidence.append("short_len<=700")
-    score += 0.25
+    score += 0.20
 
     if has_substantial_orf(f):
         return None
 
     evidence.append("no_substantial_orf")
-    score += 0.25
+    score += 0.20
 
     if has_coding_domains(f):
         return None
@@ -111,6 +148,12 @@ def score_sine_candidate(f: Family) -> NonAutonomousCall | None:
 
     evidence.append("polyA_present")
     score += 0.25
+
+    if f.tsd_present:
+        # SINEs can have TSDs, but the length/sequence is partner dependent and
+        # is not enough to classify a SINE by itself.
+        evidence.append(f"tsd_len={int(getattr(f, 'tsd_len', 0) or 0)}")
+        score += 0.05
 
     if f.homology_order == "SINE" or f.dfam_order == "SINE":
         evidence.append("sine_homology")
@@ -135,8 +178,9 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
     """
     Conservative MITE candidate rule.
 
-    MITEs are short non-autonomous TIR elements. TSD evidence upgrades
-    confidence and may suggest the autonomous parent superfamily.
+    A MITE is a short, non-autonomous TIR element. TSD evidence is not required
+    for every family because consensus boundaries may be imperfect, but a weak
+    TIR without TSD support should not pass.
     """
 
     evidence: list[str] = []
@@ -148,11 +192,21 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
     evidence.append("short_len<=800")
     score += 0.15
 
-    if not f.tir_present:
+    grade = tir_grade(f)
+    if grade == "ABSENT":
         return None
 
-    evidence.append("tir_present")
-    score += 0.30
+    if grade == "WEAK" and not f.tsd_present:
+        return None
+
+    evidence.append(f"tir_grade={grade}")
+
+    if grade == "STRONG":
+        score += 0.35
+    elif grade == "MODERATE":
+        score += 0.25
+    else:
+        score += 0.10
 
     if has_substantial_orf(f):
         return None
@@ -164,6 +218,12 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
         return None
 
     evidence.append("no_transposase_domain")
+    score += 0.10
+
+    if f.rt_present or f.integrase_present or f.rnaseh_present or f.gag_present:
+        return None
+
+    evidence.append("no_retroelement_domains")
     score += 0.10
 
     if f.tsd_present:
@@ -178,26 +238,9 @@ def score_mite_candidate(f: Family) -> NonAutonomousCall | None:
 
         inferred_sf = infer_mite_superfamily_from_tsd(f)
 
-        if inferred_sf == "TcMar-Mariner":
-            score += 0.25
-            evidence.append("tsd_superfamily_hint=TcMar-Mariner")
-
-        elif inferred_sf == "piggyBac":
-            score += 0.30
-            evidence.append("tsd_superfamily_hint=piggyBac")
-
-        elif inferred_sf == "PIF-Harbinger":
-            score += 0.25
-            evidence.append("tsd_superfamily_hint=PIF-Harbinger")
-
-        elif inferred_sf == "PIF-Harbinger_or_hAT_like":
+        if inferred_sf != "Unknown":
+            evidence.append(f"tsd_superfamily_hint={inferred_sf}")
             score += 0.20
-            evidence.append("tsd_superfamily_hint=PIF-Harbinger_or_hAT_like")
-
-        elif inferred_sf == "hAT":
-            score += 0.25
-            evidence.append("tsd_superfamily_hint=hAT")
-
         else:
             score += 0.10
 
@@ -368,5 +411,4 @@ def infer_nonautonomous_candidates(
                 calls.append(call)
 
     return arbitrate_nonautonomous_calls(calls)
-
 

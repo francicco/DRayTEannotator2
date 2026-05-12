@@ -48,7 +48,12 @@ def build_evidence_string(f):
     if f.transposase_present:
         evidence.append("Transposase_domain")
     if f.tsd_present:
-        evidence.append("TSD")
+        evidence.append(f"TSD:{f.tsd_len}:{f.tsd_seq}:support={f.tsd_support}")
+    if f.structural_superfamily_hint not in {"", "NA", "Unknown", "unknown", None}:
+        evidence.append(
+            f"structural_superfamily={f.structural_superfamily_hint}:"
+            f"confidence={f.structural_superfamily_confidence}"
+        )
     if f.polyA_present:
         evidence.append("polyA")
 
@@ -243,6 +248,11 @@ def classify_family(f):
         superfamily = f.dfam_superfamily
     elif f.rescue_superfamily not in {"", "NA", "Unknown", None}:
         superfamily = f.rescue_superfamily
+    elif (
+        best_label == "DNA_TIR"
+        and f.structural_superfamily_hint not in {"", "NA", "Unknown", "unknown", None}
+    ):
+        superfamily = f.structural_superfamily_hint
     else:
         superfamily = "Unknown"
 
