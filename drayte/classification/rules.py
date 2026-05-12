@@ -1,21 +1,24 @@
 def is_ltr_candidate(f):
-
-    # Structural LTR
-    if f.ltr_present:
+    if getattr(f, "ltr_present", False) and getattr(f, "ltr_structural_type", "none") in {
+        "LTR_like",
+        "LARD_like",
+        "TRIM",
+    }:
         return True
 
-    # Retroviral architecture
-    if (
-        f.rt_present and
-        (
-            f.integrase_present or
-            f.rnaseh_present
-        )
-    ):
+    if getattr(f, "rt_present", False):
         return True
 
-    # Homology support
-    if f.homology_class == "LTR":
+    if getattr(f, "integrase_present", False):
+        return True
+
+    if getattr(f, "homology_class", "Unknown") == "LTR":
+        return True
+
+    if getattr(f, "homology_order", "Unknown") == "LTR":
+        return True
+
+    if getattr(f, "dfam_order", "Unknown") == "LTR":
         return True
 
     return False

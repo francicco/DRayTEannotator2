@@ -125,7 +125,28 @@ def build_families_from_evidence(
 
     families = []
 
-    for family_id, seq_len in lengths.items():
+    # Build Family objects from the union of all evidence sources, not only
+    # from sequences present in the current consensus FASTA. This is important
+    # for structure-derived evidence produced from the structure input FASTA,
+    # where extension-derived consensus IDs may not all be represented in the
+    # classification FASTA used here.
+    all_family_ids = set(lengths)
+    all_family_ids.update(structure_summary)
+    all_family_ids.update(domain_summary)
+    all_family_ids.update(best_dfam)
+    all_family_ids.update(rescue_summary)
+    all_family_ids.update(orf_summary)
+
+    for family_id in sorted(all_family_ids):
+        seq_len = lengths.get(family_id)
+
+        if seq_len is None:
+            struct = structure_summary.get(family_id, {})
+            seq_len = struct.get("consensus_len")
+
+        if seq_len is None:
+            seq_len = 0
+
         raw_domains = set(
             domain_summary.get(family_id, {}).get("domains", [])
         )
@@ -240,7 +261,6 @@ def build_families_from_evidence(
                 rescue_bits=rescue_bits,
                 rescue_target=rescue_target,
                 domains=domains,
-                ltr_present=struct.get("ltr_present", False),
                 tir_present=struct.get("tir_present", False),
                 tir_len=struct.get("tir_len", 0),
                 tir_identity=struct.get("tir_identity", 0.0),
@@ -264,6 +284,12 @@ def build_families_from_evidence(
                 sine_score=struct.get("sine_score", 0.0),
                 sine_candidate=struct.get("sine_candidate", False),
                 sine_confidence=struct.get("sine_confidence", "LOW"),
+                ltr_present=struct.get("ltr_present", False),
+                ltr_structural_type=struct.get("ltr_structural_type", "none"),
+                ltr_score=struct.get("ltr_score", 0.0),
+                ltr_confidence=struct.get("ltr_confidence", "LOW"),
+                tg_ca_motif=struct.get("tg_ca_motif", False),
+                ppt_like=struct.get("ppt_like", False),
                 orf_count=orfs["orf_count"],
                 orf_max_len=orfs["orf_max_len"],
                 tsd_seq=struct.get("tsd_seq", ""),

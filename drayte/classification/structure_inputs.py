@@ -66,6 +66,7 @@ def build_structure_input_fasta(
     base_fasta: Path,
     extension_final_consensuses: Path,
     output_fasta: Path,
+    heliano_fasta: Path | None = None,
     logger=None,
     force: bool = False,
 ) -> Path:
@@ -83,6 +84,7 @@ def build_structure_input_fasta(
     records = _records_by_clean_id(base_fasta)
     n_base = len(records)
     n_extension = 0
+    n_heliano = 0
 
     for rep_fa in _iter_extension_rep_fastas(extension_final_consensuses):
         parsed = list(SeqIO.parse(str(rep_fa), "fasta"))
@@ -92,22 +94,32 @@ def build_structure_input_fasta(
         records[clean_family_id(rec.id)] = rec
         n_extension += 1
 
+    if _valid_fasta(heliano_fasta):
+        for rec in SeqIO.parse(str(heliano_fasta), "fasta"):
+            cid = clean_family_id(rec.id)
+            if cid in records:
+                continue
+            records[cid] = rec
+            n_heliano += 1
+
     output_fasta.parent.mkdir(parents=True, exist_ok=True)
     ordered = [records[k] for k in sorted(records)]
+
     with open(output_fasta, "w") as handle:
         SeqIO.write(ordered, handle, "fasta")
 
     if logger is not None:
         logger.info(
-            "Wrote structure input FASTA: %s (base=%d, extension_overrides=%d, total=%d)",
+            "Wrote structure input FASTA: %s "
+            "(base=%d, extension_overrides=%d, heliano=%d, total=%d)",
             output_fasta,
             n_base,
             n_extension,
+            n_heliano,
             len(records),
         )
 
     return output_fasta
-
 
 def resolve_structure_input_fasta(
     *,
@@ -147,11 +159,21 @@ def resolve_structure_input_fasta(
         )
     )
 
+    heliano_fasta = config.outdir_path / "heliano" / f"{config.species}.heliano.unique_vs_curated.fa"
+
+    if not _valid_fasta(heliano_fasta):
+        heliano_fasta = None
+
+    if logger is not None and heliano_fasta is not None:
+        logger.info("Including HELIANO families in structure input: %s", heliano_fasta)
+
     structure_fasta = outdir / f"{config.species}.structure_input.fa"
+
     return build_structure_input_fasta(
         base_fasta=base,
         extension_final_consensuses=extension_final_consensuses,
         output_fasta=structure_fasta,
+        heliano_fasta=heliano_fasta,
         logger=logger,
         force=bool(classification_cfg.get("rebuild_structure_input_fasta", False)),
     )

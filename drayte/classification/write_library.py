@@ -86,51 +86,23 @@ def split_rm_label(label: str) -> tuple[str, str]:
     return clean_value(label), "Unknown"
 
 
-def infer_rm_class_from_row(
-    row: dict,
-    original_label: str = "Unknown",
-) -> str:
-    rm_class = get_first_known(
+def infer_rm_class_from_row(row: dict) -> str:
+    return get_first_known(
         row,
         [
-            "header_class",
-            "rm_class",
-            "repeatmasker_class",
             "order",
             "final_order",
         ],
     )
 
-    if rm_class != "Unknown":
-        return rm_class
-
-    original_class, _ = split_rm_label(original_label)
-
-    return original_class
-
-
-def infer_superfamily_from_row(
-    row: dict,
-    original_label: str = "Unknown",
-) -> str:
-    superfamily = get_first_known(
+def infer_superfamily_from_row(row: dict) -> str:
+    return get_first_known(
         row,
         [
             "superfamily",
             "final_superfamily",
-            "header_superfamily",
-            "rm_superfamily",
-            "repeatmasker_superfamily",
         ],
     )
-
-    if superfamily != "Unknown":
-        return superfamily
-
-    _, original_superfamily = split_rm_label(original_label)
-
-    return original_superfamily
-
 
 def infer_final_class(row: dict) -> str:
     return get_first_known(
@@ -150,28 +122,21 @@ def repeatmasker_label(
         return clean_value(original_label)
 
     final_class = infer_final_class(row)
+    rm_class = infer_rm_class_from_row(row)
+    superfamily = infer_superfamily_from_row(row)
 
-    rm_class = infer_rm_class_from_row(
-        row,
-        original_label=original_label,
-    )
+    if rm_class == "Helitron":
+        rm_class = "RC"
+        if superfamily == "Unknown":
+            superfamily = "Helitron"
 
-    superfamily = infer_superfamily_from_row(
-        row,
-        original_label=original_label,
-    )
-
-    if final_class == "Unknown" and rm_class == "Unknown":
-        return clean_value(original_label)
-
-    if rm_class == "Unknown":
+    if final_class == "Unknown" or rm_class == "Unknown":
         return "Unknown"
 
     if superfamily == "Unknown":
         return rm_class
 
     return f"{rm_class}/{superfamily}"
-
 
 def format_header(
     family_id: str,
@@ -275,7 +240,7 @@ def main():
     args = parser.parse_args()
 
     n_written = rewrite_fasta_headers(
-        input_fasta=args.fasta,
+        input_fasta=structure_library,
         classifications_tsv=args.classifications,
         output_fasta=args.output,
         keep_unknown=not args.drop_unknown,

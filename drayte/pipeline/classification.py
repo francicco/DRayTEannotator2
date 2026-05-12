@@ -359,7 +359,7 @@ def run(
     logger.info("Building per-family evidence objects")
 
     families = build_families_from_evidence(
-        consensus_fasta=library,
+        consensus_fasta=structure_library,
         domain_hits=domain_hits,
         dfam_hits=dfam_hits,
         structure_evidence=structure_evidence,
@@ -412,8 +412,8 @@ def run(
     )
 
     rewrite_fasta_headers(
-        input_fasta=library,
-        classifications_tsv=evidence_tsv,
+        input_fasta=structure_library,
+        classifications_tsv=classifications_tsv,
         output_fasta=classified_library,
         keep_unknown=True,
         taxon=classification_cfg.get("taxon", species),

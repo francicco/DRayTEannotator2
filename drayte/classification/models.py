@@ -77,6 +77,13 @@ class Family:
     sine_candidate: bool = False
     sine_confidence: str = "LOW"
 
+    ltr_present: bool = False
+    ltr_structural_type: str = "none"
+    ltr_score: float = 0.0
+    ltr_confidence: str = "LOW"
+    tg_ca_motif: bool = False
+    ppt_like: bool = False
+
     orf_count: int = 0
     orf_max_len: int = 0
 

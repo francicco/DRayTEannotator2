@@ -1,25 +1,47 @@
 def score_ltr(f):
-    structure = 1.0 if f.ltr_present else 0.0
+    structure = 0.0
+
+    if f.ltr_present:
+        structure += 0.45
+
+    if getattr(f, "ltr_structural_type", "none") == "LTR_like":
+        structure += 0.15
+    elif getattr(f, "ltr_structural_type", "none") in {"LARD_like", "TRIM"}:
+        structure += 0.10
+
+    if getattr(f, "tg_ca_motif", False):
+        structure += 0.10
+
+    if getattr(f, "ppt_like", False):
+        structure += 0.05
+
+    structure = min(structure, 1.0)
 
     domain = 0.0
     if f.rt_present:
-        domain += 0.6
+        domain += 0.45
     if f.integrase_present:
-        domain += 0.4
+        domain += 0.25
+    if getattr(f, "rnaseh_present", False):
+        domain += 0.20
+    if getattr(f, "gag_present", False):
+        domain += 0.10
+
+    domain = min(domain, 1.0)
 
     homology = f.homology_score if f.homology_class == "LTR" else 0.0
 
     boundary = f.boundary_consistency
     annotation = 1.0 - f.fragmentation_score
 
-    return (
-        0.30 * structure +
-        0.25 * domain +
+    return round(
+        0.35 * structure +
+        0.30 * domain +
         0.20 * homology +
-        0.15 * boundary +
-        0.10 * annotation
+        0.10 * boundary +
+        0.05 * annotation,
+        3,
     )
-
 
 def score_dna_tir(f):
     structure = 1.0 if f.tir_present else 0.0
