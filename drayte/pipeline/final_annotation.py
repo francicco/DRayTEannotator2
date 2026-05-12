@@ -45,22 +45,17 @@ def run(config, curation_result: dict, logger) -> dict:
     taxon = config.species
     genome_fa = config.outdir_path / "discovery" / "assemblies_dir" / f"{taxon}.fa"
 
-    final_library = Path(curation_result["final_library"])
+    if "classified_library" not in curation_result:
+        raise FileNotFoundError(
+            "classified_library missing from final_annotation input. "
+            "Run classification before final_annotation."
+        )
     
-    heliano_library = curation_result.get("heliano_library")
+    final_library = Path(curation_result["classified_library"])
     
-    if heliano_library:
-        merged_library = outdir / f"{taxon}.final_plus_heliano.fa"
+    if not final_library.exists() or final_library.stat().st_size == 0:
+        raise FileNotFoundError(f"Classified library not found: {final_library}")    
     
-        if not merged_library.exists() or merged_library.stat().st_size == 0:
-            logger.info("Merging curated library with HELIANO library")
-            with merged_library.open("w") as out_handle:
-                for lib in [final_library, Path(heliano_library)]:
-                    with lib.open() as in_handle:
-                        shutil.copyfileobj(in_handle, out_handle)
-    
-        final_library = merged_library
-
     tbl = outdir / f"{taxon}.fa.tbl"
     out = outdir / f"{taxon}.fa.out"
     gff = outdir / f"{taxon}.fa.gff"
@@ -68,9 +63,16 @@ def run(config, curation_result: dict, logger) -> dict:
     cat_gz = outdir / f"{taxon}.fa.cat.gz"
     align = outdir / f"{taxon}.fa.align"
 
-    if final_annotation_exists(outdir, taxon):
-        logger.info("Final RepeatMasker outputs already exist; skipping")
+    outputs_exist = final_annotation_exists(outdir, taxon)
+    outputs_current = outputs_exist and out.stat().st_mtime >= final_library.stat().st_mtime
+    
+    if outputs_current:
+        logger.info("Final RepeatMasker outputs already exist and are current; skipping")
     else:
+        if outputs_exist:
+            logger.info(
+                "Classified library is newer than final RepeatMasker outputs; re-running"
+            )
         cmd = [
             str(config.extra.get("repeatmasker_bin", "RepeatMasker")),
             "-s",
