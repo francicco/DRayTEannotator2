@@ -96,9 +96,9 @@ def main() -> None:
 
     refinement_outdir = config.outdir_path / "Defragmenting_RModAnnotation"
 
-    refined_tsv = refinement_outdir / f"{config.species}.annotation_refinement.tsv"
+    refined_tsv = refinement_outdir / f"{config.species}.Defragmenting_RModAnnotation.tsv"
     filtered_tsv = refinement_outdir / f"{config.species}.filteredRepeats.tsv"
-    stats_tsv = refinement_outdir / f"{config.species}.annotation_refinement.stats.tsv"
+    stats_tsv = refinement_outdir / f"{config.species}.Defragmenting_RModAnnotation.stats.tsv"
 
     if (
         refined_tsv.exists() and refined_tsv.stat().st_size > 0
@@ -106,13 +106,13 @@ def main() -> None:
         and stats_tsv.exists() and stats_tsv.stat().st_size > 0
     ):
         logger.info("=" * 80)
-        logger.info("STAGE: annotation_refinement")
+        logger.info("STAGE: Defragmenting_RModAnnotation")
         logger.info("Output directory: %s", refinement_outdir)
         logger.info("=" * 80)
         logger.info("TE-refine outputs already exist; skipping")
 
         refinement_result = {
-            "stage": "annotation_refinement",
+            "stage": "Defragmenting_RModAnnotation",
             "outdir": str(refinement_outdir),
             "refined_tsv": str(refined_tsv),
             "filtered_tsv": str(filtered_tsv),
@@ -140,38 +140,38 @@ def main() -> None:
 
     write_manifest(
         refinement_outdir,
-        "annotation_refinement",
+        "Defragmenting_RModAnnotation",
         refinement_result,
     )
 
-    refinement_outdir = config.outdir_path / "annotation_refinement"
+    refinement_outdir = config.outdir_path / "Defragmenting_RModAnnotation"
 
     summary_no_filtering_outdir = (
-        config.outdir_path.parent / f"{config.species}.annotation_refinement_noFiltering"
+        config.outdir_path.parent / f"{config.species}.Defragmenting_RModAnnotation_noFiltering"
     )
 
     summary_no_filter_result = run_summary_files(
-        refined_tsv=config.outdir_path / "annotation_refinement" / f"{config.species}.annotation_refinement.tsv",
+        refined_tsv=refinement_outdir / f"{config.species}.annotation_refinement.tsv",
         genome=Path(config.genome),
         species=config.species,
-        outdir=config.outdir_path / f"{config.species}.annotation_refinement_noFiltered",
+        outdir=config.outdir_path / f"{config.species}.Defragmenting_RModAnnotation_noFiltered",
         max_merge_gap=int(config.extra.get("summary_max_merge_gap", 100)),
         min_nested_overlap_fraction=float(config.extra.get("summary_min_nested_overlap_fraction", 0.80)),
         logger=logger,
     )
     
     summary_filtered_result = run_summary_files(
-        refined_tsv=config.outdir_path / "annotation_refinement" / f"{config.species}.filteredRepeats.tsv",
+        refined_tsv=refinement_outdir / f"{config.species}.filteredRepeats.tsv",
         genome=Path(config.genome),
         species=config.species,
-        outdir=config.outdir_path / f"{config.species}.annotation_refinement_Filtered",
+        outdir=config.outdir_path / f"{config.species}.Defragmenting_RModAnnotation_Filtered",
         max_merge_gap=int(config.extra.get("summary_max_merge_gap", 100)),
         min_nested_overlap_fraction=float(config.extra.get("summary_min_nested_overlap_fraction", 0.80)),
         logger=logger,
     )
 
     write_manifest(
-        summary_no_filtering_outdir,
+        refinement_outdir,
         "TE-summary.noFiltering",
         summary_no_filter_result,
     )

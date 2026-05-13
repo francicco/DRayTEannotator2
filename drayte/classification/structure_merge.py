@@ -26,7 +26,10 @@ class StructureEvidence:
     min_window_entropy: float = 0.0
     max_window_dom1_fraction: float = 0.0
     max_window_homopolymer_run: int = 0
-    complexity_confidence: str = "LOW"
+
+    is_low_complexity: bool = False
+    is_simple_repeat: bool = False
+    complexity_score: float = 0.0
     complexity_class: str = "none"
     complexity_confidence: str = "LOW"
 

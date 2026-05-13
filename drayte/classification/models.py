@@ -46,7 +46,6 @@ class Family:
 
     domains: Set[str] = field(default_factory=set)
 
-    ltr_present: bool = False
     tir_present: bool = False
     tir_len: int = 0
     tir_identity: float = 0.0

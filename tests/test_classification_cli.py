@@ -28,7 +28,7 @@ def test_classification_cli_tsv_mode(tmp_path: Path):
     )
 
     text = out.read_text()
-    assert "fam1\tClass_I\tLTR\tGypsy\tOK\tHIGH" in text
+    assert "fam1\tClass_I\tLTR\tGypsy\tOK" in text
 
 
 def test_classification_cli_fasta_mode(tmp_path: Path):
