@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from statistics import mean
 import argparse
 import csv
@@ -89,12 +90,11 @@ class TELocus:
     def length(self) -> int:
         return self.end - self.start + 1
 
-
 # ---------------------------------------------------------------------
 # Parsing RepeatMasker output
 # ---------------------------------------------------------------------
 
-def parse_repeatmasker_out(path: Path) -> list[RMHit]:
+def parse_repeatmasker_out(path: Path, logger=None):
     """
     Parse a standard RepeatMasker .out file.
 
@@ -111,8 +111,11 @@ def parse_repeatmasker_out(path: Path) -> list[RMHit]:
     - It normalizes genomic coordinates.
     - It converts RepeatMasker's 'C' strand to '-'.
     """
-
-    hits: list[RMHit] = []
+    if logger is None:
+        import logging
+        logger = logging.getLogger(__name__)
+   
+    hits = []
 
     with path.open() as handle:
         for line in handle:
@@ -178,6 +181,8 @@ def parse_repeatmasker_out(path: Path) -> list[RMHit]:
 
     if not hits:
         raise ValueError(f"No RepeatMasker hits parsed from {path}")
+
+    logger.info("Loaded %d RepeatMasker hits", len(hits))
 
     return hits
 
@@ -1171,6 +1176,7 @@ def refine_repeatmasker(
     max_consensus_jump: int = 10000,
     resolve_overlaps: bool = False,
     overlap_score: str = "longest_lowdiv",
+    logger=None,
 ) -> dict:
     """
     Run the full refinement workflow.
@@ -1190,6 +1196,33 @@ def refine_repeatmasker(
       - the standalone TE-refine command
       - the DRayTE pipeline stage
     """
+    if logger is None:
+        import logging
+        logger = logging.getLogger(__name__)
+
+    logger.info("=" * 80)
+    logger.info("STAGE: TE-refine (annotation_refinement)")
+    logger.info("Species: %s", species)
+    logger.info("RepeatMasker input: %s", rmout)
+    logger.info("Output directory: %s", outdir)
+    logger.info("=" * 80)
+
+    logger.info(
+        "Parameters: mode=%s, max_gap=%s, resolve_overlaps=%s, overlap_score=%s",
+        mode,
+        max_gap,
+        resolve_overlaps,
+        overlap_score,
+    )
+
+    logger.info(
+        "Advanced: include_nested=%s, max_consensus_overlap=%s, max_consensus_jump=%s",
+        include_nested,
+        max_consensus_overlap,
+        max_consensus_jump,
+    )
+
+    logger.info("Parsing RepeatMasker output...")
 
     if overlap_score not in {"longest", "lowest_divergence", "longest_lowdiv"}:
         raise ValueError(
@@ -1199,12 +1232,13 @@ def refine_repeatmasker(
     outdir.mkdir(parents=True, exist_ok=True)
 
     # 1. Parse raw RepeatMasker hits
-    hits = parse_repeatmasker_out(rmout)
+    hits = parse_repeatmasker_out(rmout, logger=logger)
 
     # 2. Mark fully nested hits
     mark_nested_hits(hits)
 
     # 3. Build refined loci by conservative fragment merging
+    logger.info(" Build loci on: %d hits", len(hits))
     loci = build_loci(
         hits=hits,
         species=species,
@@ -1215,19 +1249,23 @@ def refine_repeatmasker(
         max_consensus_jump=max_consensus_jump
     )
 
+    logger.info(" Mark loci overlaps: %d loci", len(loci))
     overlaps = mark_locus_overlaps(loci)
 
-    stats_tsv = outdir / f"{species}.annotation_refinement.stats.tsv"
-    manifest_json = outdir / f"{species}.annotation_refinement.manifest.json"
+    logger.info(f" Writing {species}.annotation_refinement.stats.tsv")
 
     # 4. Define outputs
     refined_gff = outdir / f"{species}.refinedRepeats.gff3"
     refined_bed = outdir / f"{species}.refinedRepeats.bed"
     refined_tsv = outdir / f"{species}.annotation_refinement.tsv"
     nested_gff = outdir / f"{species}.nestedRepeats.gff3"
+
     filtered_gff = outdir / f"{species}.filteredRepeats.gff3"
     filtered_bed = outdir / f"{species}.filteredRepeats.bed"
     filtered_tsv = outdir / f"{species}.filteredRepeats.tsv"
+
+    stats_tsv = outdir / f"{species}.annotation_refinement.stats.tsv"
+    manifest_json = outdir / f"{species}.annotation_refinement.manifest.json"
 
     # 5. Write outputs
     write_gff3(loci, refined_gff, overlaps=overlaps)
@@ -1298,7 +1336,17 @@ def refine_repeatmasker(
     }
     
     write_manifest(manifest_json, result)
-    
+  
+    logger.info("Refinement complete:")
+    logger.info("  Raw hits: %s", stats.get("raw_hits"))
+    logger.info("  Refined loci: %s", stats.get("refined_loci"))
+    logger.info("  Merged loci: %s", stats.get("merged_loci"))
+    logger.info("  Single-fragment loci: %s", stats.get("single_fragment_loci"))
+    logger.info("  Mean fragments per locus: %s", stats.get("mean_fragments_per_locus"))
+    logger.info("  Total refined bp: %s", stats.get("total_refined_bp"))
+    logger.info("  Overlapping loci: %s", stats.get("overlapping_loci"))
+    logger.info("  Filtered loci: %s", result.get("filtered_loci"))
+ 
     return result
 
 
@@ -1402,6 +1450,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    
+    logger = logging.getLogger("drayte")
+
     result = refine_repeatmasker(
         rmout=args.rmout,
         species=args.species,
@@ -1413,6 +1469,7 @@ def main() -> None:
         max_consensus_jump=args.max_consensus_jump,
         resolve_overlaps=args.resolve_overlaps,
         overlap_score=args.overlap_score,
+        logger=logger,
     )
 
     # Print summary in machine-readable key/value format

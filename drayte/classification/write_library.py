@@ -113,6 +113,38 @@ def infer_final_class(row: dict) -> str:
         ],
     )
 
+def normalize_rm_label(rm_class: str, superfamily: str) -> tuple[str, str]:
+    rm_class = clean_value(rm_class)
+    superfamily = clean_value(superfamily)
+
+    if rm_class == "TIR":
+        rm_class = "DNA"
+
+    if rm_class == "Helitron":
+        rm_class = "RC"
+        if superfamily == "Unknown":
+            superfamily = "Helitron"
+
+    if rm_class == "Penelope":
+        rm_class = "LINE"
+        superfamily = "Penelope"
+
+    sf_map = {
+        "Tc1-Mariner_like": "TcMar-Mariner",
+        "TcMar-Mariner": "TcMar-Mariner",
+        "PIF-Harbinger_or_CACTA_like": "PIF-Harbinger",
+        "CACTA_like": "PIF-Harbinger",
+        "2bp_TSD_TIR_ambiguous": "Unknown",
+        "BovB": "RTE-BovB",
+        "CR1": "CR1",
+        "L2": "L2",
+        "I": "I",
+    }
+
+    if superfamily in sf_map:
+        superfamily = sf_map[superfamily]
+
+    return rm_class, superfamily
 
 def repeatmasker_label(
     row: dict | None,
@@ -124,6 +156,7 @@ def repeatmasker_label(
     final_class = infer_final_class(row)
     rm_class = infer_rm_class_from_row(row)
     superfamily = infer_superfamily_from_row(row)
+    rm_class, superfamily = normalize_rm_label(rm_class, superfamily)
 
     if rm_class == "Helitron":
         rm_class = "RC"
@@ -132,10 +165,10 @@ def repeatmasker_label(
 
     if final_class == "Unknown" or rm_class == "Unknown":
         return "Unknown"
-
+    
     if superfamily == "Unknown":
         return rm_class
-
+    
     return f"{rm_class}/{superfamily}"
 
 def format_header(

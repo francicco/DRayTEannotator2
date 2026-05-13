@@ -598,10 +598,10 @@ def summary_files_exist(outdir: Path, species: str) -> bool:
 
 
 def run_summary(
-    rmout: Path | None,
-    genome_size: int,
-    species: str,
-    outdir: Path,
+    rmout: Path | None = None,
+    genome_size: int = None,
+    species: str = None,
+    outdir: Path = None,
     refined_tsv: Path | None = None,
     max_merge_gap: int = 100,
     min_nested_overlap_fraction: float = 0.80,
@@ -644,12 +644,26 @@ def run_summary(
     print(high.to_markdown(index=False))
     print()
 
-def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
-    species = config.species
-    outdir = ensure_dir(stage_dir(config.outdir_path, "summaryFiles"))
+def run_summary_files(
+    refined_tsv,
+    genome,
+    species,
+    outdir,
+    max_merge_gap: int = 100,
+    min_nested_overlap_fraction: float = 0.80,
+    logger=None,
+) -> dict:
+    if logger is None:
+        import logging
+        logger = logging.getLogger(__name__)
+
+    refined_tsv = Path(refined_tsv)
+    genome = Path(genome)
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
 
     logger.info("=" * 80)
-    logger.info("STAGE: summaryFiles")
+    logger.info("STAGE: TE-summary")
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
@@ -660,28 +674,23 @@ def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
             "outdir": str(outdir),
         }
 
-    rmout = Path(final_annotation_result["repeatmasker_out"])
-    if not rmout.exists() or rmout.stat().st_size == 0:
-        raise FileNotFoundError(f"RepeatMasker .out file not found or empty: {rmout}")
+    if not refined_tsv.exists() or refined_tsv.stat().st_size == 0:
+        raise FileNotFoundError(f"Refined TSV not found or empty: {refined_tsv}")
 
-    genome_fa = config.outdir_path / "discovery" / "assemblies_dir" / f"{species}.fa"
-    if not genome_fa.exists() or genome_fa.stat().st_size == 0:
-        raise FileNotFoundError(f"Genome FASTA not found or empty: {genome_fa}")
+    if not genome.exists() or genome.stat().st_size == 0:
+        raise FileNotFoundError(f"Genome FASTA not found or empty: {genome}")
 
-    genome_size = fasta_size(genome_fa)
+    genome_size = fasta_size(genome)
 
-    max_merge_gap = int(config.extra.get("summary_max_merge_gap", 100))
-    min_nested_overlap_fraction = float(
-        config.extra.get("summary_min_nested_overlap_fraction", 0.80)
-    )
+    logger.info("Genome size inferred from %s: %s bp", genome, genome_size)
+    logger.info("Generating summary files from refined annotation: %s", refined_tsv)
 
-    logger.info("Genome size inferred from %s: %s bp", genome_fa, genome_size)
-    logger.info("Generating summary files from %s", rmout)
-    logger.info("Defragmentation max gap: %s bp", max_merge_gap)
-    logger.info("Nested overlap fraction: %.2f", min_nested_overlap_fraction)
+    max_merge_gap = 100
+    min_nested_overlap_fraction = 0.80
 
     run_summary(
-        rmout=rmout,
+        rmout=None,
+        refined_tsv=refined_tsv,
         genome_size=genome_size,
         species=species,
         outdir=outdir,
@@ -694,6 +703,7 @@ def run_summary_files(config, final_annotation_result: dict, logger) -> dict:
     return {
         "stage": "summaryFiles",
         "outdir": str(outdir),
+        "refined_tsv": str(refined_tsv),
         "high_level_count": str(outdir / f"{species}.highLevelCount.txt"),
         "family_level_count": str(outdir / f"{species}.familyLevelCount.txt"),
         "divergence_summary": str(outdir / f"{species}_divergence_summary_table.tsv"),
@@ -747,16 +757,12 @@ def main() -> None:
         genome_size = args.genome_size
         print(f"Genome size provided: {genome_size} bp")
 
-    run_summary(
-        rmout=args.rmout,
+    run_summary_files(
         refined_tsv=args.refined_tsv,
-        genome_size=genome_size,
+        genome=args.genome,
         species=args.species,
         outdir=args.outdir,
-        max_merge_gap=args.max_merge_gap,
-        min_nested_overlap_fraction=args.min_nested_overlap_fraction,
     )
-
 
 if __name__ == "__main__":
     main()
