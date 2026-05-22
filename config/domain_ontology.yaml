@@ -101,3 +101,37 @@ HELICASE:
     - DEXDc
     - HELICc
   order: Helitron
+
+PENELOPE_RT:
+  aliases:
+    - Penelope
+    - PLE
+    - PLE_RT
+    - Penelope_RT
+    - RVT_3
+    - GIY-YIG
+  order: Penelope
+  superfamily: Penelope
+
+HAT:
+  aliases:
+    - hAT
+    - hAT_transposase
+    - Charlie
+  order: TIR
+  superfamily: hAT
+
+CACTA:
+  aliases:
+    - CACTA
+    - EnSpm
+    - En-Spm
+    - CMC
+  order: TIR
+  superfamily: CACTA
+
+MERLIN:
+  aliases:
+    - Merlin
+  order: TIR
+  superfamily: Merlin

@@ -9,6 +9,9 @@ repeatscout_dir: /user/work/tk19812/software/RepeatScout
 repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker
 repeatmodeler_extend_script: /user/work/tk19812/software/RepeatModeler-2.0.4/util/davidExtendConsRAM.pl
 repeatclassifier_bin: RepeatClassifier
+ucsc_tools_dir: /user/work/tk19812/software/Kent/bin/x86_64
+repeat_after_me_dir: /user/work/tk19812/software/RepeatAfterMe
+phrap_dir: /user/work/tk19812/software/phrap
 
 repeatpeps_db_dir: /user/work/tk19812/software/RepeatMasker/Libraries/
 diamond_bin: diamond

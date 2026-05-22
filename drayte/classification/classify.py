@@ -3,6 +3,7 @@ from .scoring import (
     score_ltr,
     score_dna_tir,
     score_line,
+    score_penelope,
     score_helitron,
     score_sine,
 )
@@ -18,6 +19,7 @@ from .rules import (
 CLASS_MAP = {
     "LTR": ("Class_I", "LTR"),
     "LINE": ("Class_I", "LINE"),
+    "PENELOPE": ("Class_I", "Penelope"),
     "DNA_TIR": ("Class_II", "TIR"),
     "HELITRON": ("Class_II", "Helitron"),
     "SINE": ("Class_I", "SINE"),
@@ -28,9 +30,98 @@ rescue_label_map = {
     "TIR": "DNA_TIR",
     "Helitron": "HELITRON",
     "LINE": "LINE",
+    "Penelope": "PENELOPE",
     "LTR": "LTR",
     "SINE": "SINE",
 }
+
+def is_known(value) -> bool:
+    return value not in {"", "NA", "Unknown", "unknown", None}
+
+
+def contains_penelope(value) -> bool:
+    return bool(value) and "penelope" in str(value).lower()
+
+
+def domain_set(f) -> set:
+    return set(getattr(f, "domains", set()) or set())
+
+def has_penelope_signal(f) -> bool:
+    domains = domain_set(f)
+
+    if domains & {"PENELOPE", "PENELOPE_RT"}:
+        return True
+
+    return any(
+        contains_penelope(value)
+        for value in [
+            getattr(f, "homology_order", "Unknown"),
+            getattr(f, "homology_superfamily", "Unknown"),
+            getattr(f, "dfam_model", "Unknown"),
+            getattr(f, "dfam_order", "Unknown"),
+            getattr(f, "dfam_superfamily", "Unknown"),
+            getattr(f, "header_superfamily", "Unknown"),
+            getattr(f, "rescue_superfamily", "Unknown"),
+        ]
+    )
+
+def infer_tir_superfamily_from_tsd(tsd_len: int, tsd_seq: str) -> str:
+    seq = (tsd_seq or "").upper()
+    length = int(tsd_len or 0)
+
+    if seq == "TTAA":
+        return "piggyBac"
+
+    if seq == "TA":
+        return "TcMar-Mariner"
+
+    if seq in {"TAA", "TTA"} or length == 3:
+        return "PIF-Harbinger_or_CACTA_like"
+
+    if length == 8:
+        return "hAT_or_P_or_Merlin_like"
+
+    if length in {9, 10, 11}:
+        return "Mutator_like"
+
+    return "Unknown"
+
+
+def infer_tir_superfamily_from_domains(f) -> str:
+    domains = domain_set(f)
+
+    if "PIGGYBAC" in domains:
+        return "piggyBac"
+
+    if "MUTATOR" in domains:
+        return "Mutator"
+
+    if "PIF_HARBINGER" in domains:
+        return "PIF-Harbinger"
+
+    if "TCMAR" in domains:
+        return "TcMar-Mariner"
+
+    if "HAT" in domains:
+        return "hAT"
+
+    if "CACTA" in domains:
+        return "CACTA"
+
+    return "Unknown"
+
+
+def add_candidate(candidates, label, score, evidence_name=None):
+    if score is None:
+        return
+
+    score = max(0.0, min(float(score), 0.99))
+
+    if score <= 0.0:
+        return
+
+    candidates.append((label, score))
+
 
 def build_evidence_string(f):
     evidence = []
@@ -73,6 +164,9 @@ def build_evidence_string(f):
 
     if f.rt_present:
         evidence.append("RT_domain")
+
+    if has_penelope_signal(f):
+        evidence.append("Penelope_signal")
 
     if f.integrase_present:
         evidence.append("Integrase_domain")
@@ -117,14 +211,20 @@ def infer_status(candidates, best_score, margin):
     if not candidates:
         return "unknown"
 
-    if len(candidates) > 1 and margin < 0.10:
+    if len(candidates) > 1 and margin < 0.05:
         return "ambiguous"
 
-    if len(candidates) > 1:
-        return "conflicting_evidence"
+    if best_score < 0.35:
+        return "weak_evidence"
 
     if best_score < 0.50:
-        return "weak_evidence"
+        return "putative"
+
+    if best_score < 0.65:
+        return "likely"
+
+    if len(candidates) > 1 and margin < 0.10:
+        return "ambiguous"
 
     return "OK"
 
@@ -166,8 +266,12 @@ def compatible_superfamily(order: str, superfamily: str) -> bool:
     if order == "LINE":
         return (
             "Helitron" not in sf
+            and "Penelope" not in sf
             and sf not in {"Gypsy", "Copia", "Bel-Pao", "Pao", "DIRS", "ERV1"}
         )
+
+    if order == "Penelope":
+        return "Penelope" in sf
 
     if order == "SINE":
         return "Helitron" not in sf
@@ -189,7 +293,10 @@ def count_supporting_evidence(f, best_label):
     if best_label == "HELITRON" and f.helitron_signal:
         support += 1
 
-    if best_label in {"LINE", "LTR"} and f.rt_present:
+    if best_label in {"LINE", "LTR", "PENELOPE"} and f.rt_present:
+        support += 1
+
+    if best_label == "PENELOPE" and has_penelope_signal(f):
         support += 1
 
     if best_label == "LTR" and f.integrase_present:
@@ -216,6 +323,7 @@ def classify_family(f):
         "SINE": "SINE",
         "LTR": "LTR",
         "LINE": "LINE",
+        "Penelope": "PENELOPE",
     }
 
     if (
@@ -245,17 +353,40 @@ def classify_family(f):
     if f.dfam_order == "LINE":
         candidates.append(("LINE", min(0.99, max(0.85, f.dfam_score / 100.0))))
 
+    if f.dfam_order == "Penelope" or contains_penelope(f.dfam_superfamily):
+        candidates.append(("PENELOPE", min(0.99, max(0.85, f.dfam_score / 100.0))))
+
     if f.dfam_order == "TIR":
         candidates.append(("DNA_TIR", min(0.99, max(0.85, f.dfam_score / 100.0))))
 
     if f.dfam_order == "Helitron":
         candidates.append(("HELITRON", min(0.99, max(0.90, f.dfam_score / 100.0))))
 
+    # Domain-aware priors
+    if has_penelope_signal(f):
+        candidates.append(("PENELOPE", max(0.55, score_penelope(f))))
+
+    if f.transposase_present:
+        candidates.append(("DNA_TIR", max(0.55, score_dna_tir(f))))
+
+    if f.rt_present and not f.integrase_present and not f.ltr_present and not has_penelope_signal(f):
+        candidates.append(("LINE", max(0.50, score_line(f))))
+
+    if f.rt_present and (f.integrase_present or f.ltr_present):
+        candidates.append(("LTR", max(0.55, score_ltr(f))))
+
+    if f.helitron_domain_present:
+        candidates.append(("HELITRON", max(0.70, score_helitron(f))))
+
+    # Rule-based candidates
     if is_ltr_candidate(f):
         candidates.append(("LTR", score_ltr(f)))
 
     if is_line_candidate(f):
         candidates.append(("LINE", score_line(f)))
+
+    if has_penelope_signal(f):
+        candidates.append(("PENELOPE", score_penelope(f)))
 
     if is_dna_tir_candidate(f):
         candidates.append(("DNA_TIR", score_dna_tir(f)))
@@ -266,11 +397,10 @@ def classify_family(f):
     if is_sine_candidate(f):
         candidates.append(("SINE", score_sine(f)))
 
+    # Rescue
     rescue_candidates = []
 
-    rescue_label = rescue_label_map.get(
-        f.rescue_order
-    )
+    rescue_label = rescue_label_map.get(f.rescue_order)
 
     if (
         rescue_label is not None
@@ -297,9 +427,13 @@ def classify_family(f):
             "evidence": "no_class_rules_passed",
         }
 
-    # High-confidence RepeatMasker-style homology priors should not be
-    # overridden by generic protein domains such as DDE or RT-like hits.
-    if f.homology_score >= 0.8 and f.homology_order in homology_order_label_map:
+    if has_penelope_signal(f) and not f.ltr_present:
+        candidates = [
+            c for c in candidates
+            if c[0] == "PENELOPE"
+        ] or candidates
+
+    elif f.homology_score >= 0.8 and f.homology_order in homology_order_label_map:
         preferred = homology_order_label_map[f.homology_order]
         candidates = [
             c for c in candidates
@@ -307,8 +441,8 @@ def classify_family(f):
         ] or candidates
 
     candidates = collapse_candidates(candidates)
-
     candidates.sort(key=lambda x: x[1], reverse=True)
+
     best_label, best_score = candidates[0]
 
     if len(candidates) > 1:
@@ -320,14 +454,31 @@ def classify_family(f):
 
     if (
         best_score >= 0.80
-        and margin >= 0.15
+        and margin >= 0.12
         and support_count >= 2
     ):
         conf = "HIGH"
-    elif best_score >= 0.60 and margin >= 0.10:
+    elif best_score >= 0.55 and margin >= 0.08:
         conf = "MEDIUM"
     else:
-        conf = "LOW"        
+        conf = "LOW"
+
+    has_ltr_retro_conflict = (
+        f.ltr_present
+        and (
+            has_penelope_signal(f)
+            or f.homology_order == "LINE"
+            or f.dfam_order == "LINE"
+            or f.header_class == "LINE"
+            or f.header_superfamily == "Penelope"
+            or f.homology_superfamily == "Penelope"
+            or f.dfam_superfamily == "Penelope"
+        )
+    )
+
+    if has_ltr_retro_conflict and best_label in {"LINE", "PENELOPE", "LTR"}:
+        best_score = min(best_score, 0.64)
+        conf = "LOW"
 
     te_class, order = CLASS_MAP[best_label]
 
@@ -342,6 +493,14 @@ def classify_family(f):
             superfamily = candidate_superfamily
             break
 
+    if superfamily == "Unknown" and best_label == "PENELOPE":
+        superfamily = "Penelope"
+
+    if superfamily == "Unknown" and best_label == "DNA_TIR":
+        domain_hint = infer_tir_superfamily_from_domains(f)
+        if compatible_superfamily(order, domain_hint):
+            superfamily = domain_hint
+
     if (
         superfamily == "Unknown"
         and best_label == "DNA_TIR"
@@ -349,6 +508,11 @@ def classify_family(f):
         and compatible_superfamily(order, f.structural_superfamily_hint)
     ):
         superfamily = f.structural_superfamily_hint
+
+    if superfamily == "Unknown" and best_label == "DNA_TIR" and f.tsd_present:
+        tsd_hint = infer_tir_superfamily_from_tsd(f.tsd_len, f.tsd_seq)
+        if compatible_superfamily(order, tsd_hint):
+            superfamily = tsd_hint
 
     return {
         "class": te_class,

@@ -13,26 +13,41 @@ use File::Temp qw/ tempfile tempdir /;
 ##
 ## Localization
 ##
-my $ucscToolsDir = "/user/work/tk19812/software/Kent/bin/x86_64";
-# 2.0.2a or higher
-my $repeatModelerDir = "/user/work/tk19812/software/RepeatModeler-2.0.4";
-my $repeatAfterMeDir = "/user/work/tk19812/software/RepeatAfterMe/";
-my $phrapDir = "/user/work/tk19812/software/phrap";
 
+my $ucscToolsDir      = "";
+my $repeatModelerDir = "";
+my $repeatAfterMeDir = "";
+my $phrapDir         = "";
 
 my @getopt_args = (
-                    '-genome=s',
-                    '-family=s',
-                    '-outdir=s',
-                    '-div=s',
-                    '-h'
+    'ucscToolsDir=s',
+    'repeatModelerDir=s',
+    'repeatAfterMeDir=s',
+    'phrapDir=s',
+    'genome=s',
+    'family=s',
+    'outdir=s',
+    'div=s',
+    'h'
 );
 
 my %options = ();
-Getopt::Long::config( "noignorecase", "bundling_override" );
-unless ( GetOptions( \%options, @getopt_args ) ) {
-  die; 
+Getopt::Long::config("noignorecase", "bundling_override");
+
+unless (GetOptions(\%options, @getopt_args)) {
+    die "Error parsing davidExtendConsRAM.pl options\n";
 }
+
+$ucscToolsDir      = $options{'ucscToolsDir'}      // "";
+$repeatModelerDir = $options{'repeatModelerDir'}  // "";
+$repeatAfterMeDir = $options{'repeatAfterMeDir'}  // "";
+$phrapDir         = $options{'phrapDir'}           // "";
+
+die "Missing --ucscToolsDir\n"      unless $ucscToolsDir;
+die "Missing --repeatModelerDir\n" unless $repeatModelerDir;
+die "Missing --repeatAfterMeDir\n" unless $repeatAfterMeDir;
+die "Missing --phrapDir\n"         unless $phrapDir;
+
 
 if ( $options{'h'} || ! -s $options{'family'} || ! -s $options{'genome'} || ! $options{'outdir'} ) {
   print "./davidExtendConsRAM.pl -genome <*.2bit> -family <catTEFile> -outdir <dir> [-div 14|18|20|25 (default:18)]\n";
@@ -309,3 +324,4 @@ if ( -e "repam-cons.fa") {
 chdir($curDir);
 
 1;
+
