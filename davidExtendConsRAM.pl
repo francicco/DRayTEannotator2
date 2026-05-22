@@ -13,11 +13,6 @@ use File::Temp qw/ tempfile tempdir /;
 ##
 ## Localization
 ##
-use Getopt::Long;
-
-##
-## Localization
-##
 
 my $ucscToolsDir      = "";
 my $repeatModelerDir = "";
@@ -38,6 +33,7 @@ my @getopt_args = (
 
 my %options = ();
 Getopt::Long::config("noignorecase", "bundling_override");
+
 unless (GetOptions(\%options, @getopt_args)) {
     die "Error parsing davidExtendConsRAM.pl options\n";
 }
@@ -52,20 +48,6 @@ die "Missing --repeatModelerDir\n" unless $repeatModelerDir;
 die "Missing --repeatAfterMeDir\n" unless $repeatAfterMeDir;
 die "Missing --phrapDir\n"         unless $phrapDir;
 
-
-my @getopt_args = (
-                    '-genome=s',
-                    '-family=s',
-                    '-outdir=s',
-                    '-div=s',
-                    '-h'
-);
-
-my %options = ();
-Getopt::Long::config( "noignorecase", "bundling_override" );
-unless ( GetOptions( \%options, @getopt_args ) ) {
-  die; 
-}
 
 if ( $options{'h'} || ! -s $options{'family'} || ! -s $options{'genome'} || ! $options{'outdir'} ) {
   print "./davidExtendConsRAM.pl -genome <*.2bit> -family <catTEFile> -outdir <dir> [-div 14|18|20|25 (default:18)]\n";
