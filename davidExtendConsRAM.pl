@@ -13,11 +13,24 @@ use File::Temp qw/ tempfile tempdir /;
 ##
 ## Localization
 ##
-my $ucscToolsDir = "/user/work/tk19812/software/Kent/bin/x86_64";
-# 2.0.2a or higher
-my $repeatModelerDir = "/user/work/tk19812/software/RepeatModeler-2.0.4";
-my $repeatAfterMeDir = "/user/work/tk19812/software/RepeatAfterMe/";
-my $phrapDir = "/user/work/tk19812/software/phrap";
+use Getopt::Long;
+
+my $ucscToolsDir      = "";
+my $repeatModelerDir = "";
+my $repeatAfterMeDir = "";
+my $phrapDir         = "";
+
+GetOptions(
+    "ucscToolsDir=s"      => \$ucscToolsDir,
+    "repeatModelerDir=s" => \$repeatModelerDir,
+    "repeatAfterMeDir=s" => \$repeatAfterMeDir,
+    "phrapDir=s"         => \$phrapDir,
+) or die "Error parsing davidExtendConsRAM.pl options\n";
+
+die "Missing --ucscToolsDir\n"      unless $ucscToolsDir;
+die "Missing --repeatModelerDir\n" unless $repeatModelerDir;
+die "Missing --repeatAfterMeDir\n" unless $repeatAfterMeDir;
+die "Missing --phrapDir\n"         unless $phrapDir;
 
 
 my @getopt_args = (
