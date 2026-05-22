@@ -28,6 +28,10 @@ def run_extend_consensus(
     family_fasta: str | Path,
     workdir: str | Path,
     logfile: str | Path,
+    ucsc_tools_dir: str | Path,
+    repeatmodeler_dir: str | Path,
+    repeat_after_me_dir: str | Path,
+    phrap_dir: str | Path,
 ) -> None:
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -35,6 +39,14 @@ def run_extend_consensus(
     cmd = [
         "perl",
         str(extend_script),
+        "--ucscToolsDir",
+        str(ucsc_tools_dir),
+        "--repeatModelerDir",
+        str(repeatmodeler_dir),
+        "--repeatAfterMeDir",
+        str(repeat_after_me_dir),
+        "--phrapDir",
+        str(phrap_dir),
         "-genome",
         str(genome_2bit),
         "-family",
@@ -42,7 +54,7 @@ def run_extend_consensus(
         "-outdir",
         ".",
     ]
-
+    
     LOGGER.info("Running extension: %s", " ".join(cmd))
     with open(logfile, "w") as logh:
         process = subprocess.Popen(
