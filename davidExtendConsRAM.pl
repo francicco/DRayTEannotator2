@@ -15,17 +15,37 @@ use File::Temp qw/ tempfile tempdir /;
 ##
 use Getopt::Long;
 
+##
+## Localization
+##
+
 my $ucscToolsDir      = "";
 my $repeatModelerDir = "";
 my $repeatAfterMeDir = "";
 my $phrapDir         = "";
 
-GetOptions(
-    "ucscToolsDir=s"      => \$ucscToolsDir,
-    "repeatModelerDir=s" => \$repeatModelerDir,
-    "repeatAfterMeDir=s" => \$repeatAfterMeDir,
-    "phrapDir=s"         => \$phrapDir,
-) or die "Error parsing davidExtendConsRAM.pl options\n";
+my @getopt_args = (
+    'ucscToolsDir=s',
+    'repeatModelerDir=s',
+    'repeatAfterMeDir=s',
+    'phrapDir=s',
+    'genome=s',
+    'family=s',
+    'outdir=s',
+    'div=s',
+    'h'
+);
+
+my %options = ();
+Getopt::Long::config("noignorecase", "bundling_override");
+unless (GetOptions(\%options, @getopt_args)) {
+    die "Error parsing davidExtendConsRAM.pl options\n";
+}
+
+$ucscToolsDir      = $options{'ucscToolsDir'}      // "";
+$repeatModelerDir = $options{'repeatModelerDir'}  // "";
+$repeatAfterMeDir = $options{'repeatAfterMeDir'}  // "";
+$phrapDir         = $options{'phrapDir'}           // "";
 
 die "Missing --ucscToolsDir\n"      unless $ucscToolsDir;
 die "Missing --repeatModelerDir\n" unless $repeatModelerDir;
