@@ -204,6 +204,12 @@ def run(config, discovery_result: dict, logger) -> dict:
     )
 
     extend_script = config.extra["repeatmodeler_extend_script"]
+
+    ucsc_tools_dir = config.extra["ucsc_tools_dir"]
+    repeatmodeler_dir = config.extra["repeatmodeler_dir"]
+    repeat_after_me_dir = config.extra["repeat_after_me_dir"]
+    phrap_dir = config.extra["phrap_dir"]
+    
     summary_rows: list[dict] = []
 
     for te_id, cat_file in extracted.items():
@@ -230,8 +236,12 @@ def run(config, discovery_result: dict, logger) -> dict:
                     family_fasta=cat_file,
                     workdir=te_workdir,
                     logfile=te_log,
+                    ucsc_tools_dir=ucsc_tools_dir,
+                    repeatmodeler_dir=repeatmodeler_dir,
+                    repeat_after_me_dir=repeat_after_me_dir,
+                    phrap_dir=phrap_dir,
                 )
-
+                
             rep_fa, msa_fa, png_file, hit_count, consensus_length = postprocess_extension_outputs(
                 te_id=te_id,
                 te_workdir=te_workdir,
