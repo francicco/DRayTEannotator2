@@ -14,6 +14,15 @@ from drayte.reporting.SummaryFilesGen import run_summary_files
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DRayTE pipeline runner")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
+    parser.add_argument(
+        "--repeatmodeler-library",
+        default=None,
+        help=(
+            "Existing RepeatModeler consensi.fa.classified. Overrides the "
+            "repeatmodeler_library value in the config file and skips "
+            "RepeatModeler discovery."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -26,6 +35,11 @@ def write_manifest(outdir: Path, name: str, data: dict) -> None:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
+
+    if args.repeatmodeler_library:
+        config.extra["repeatmodeler_library"] = str(
+            Path(args.repeatmodeler_library).expanduser().resolve()
+        )
 
     ensure_dir(config.outdir_path)
     logger = setup_logger(log_file=str(config.outdir_path / "drayte.log"))
