@@ -298,6 +298,7 @@ def run_step1(
     repeatmodeler_dir: Path,
     repeatscout_dir: Path,
     repeatmasker_bin: str = "RepeatMasker",
+    repeatmodeler_library: Optional[Path] = None,
     logger: Optional[logging.Logger] = None,
 ) -> dict:
     logger = logger or LOGGER
@@ -307,14 +308,33 @@ def run_step1(
     repeatmodeler_dir = repeatmodeler_dir.resolve()
     repeatscout_dir = repeatscout_dir.resolve()
 
+    if repeatmodeler_library is not None:
+        repeatmodeler_library = repeatmodeler_library.expanduser().resolve()
+
     assemblies_dir = ensure_dir(outdir / "assemblies_dir")
     rmodeler_dir = ensure_dir(outdir / "rmodeler_dir")
     rmasker_dir = ensure_dir(outdir / "rmasker_dir")
 
-    validate_inputs(genome, repeatmodeler_dir, repeatscout_dir)
+    if repeatmodeler_library is None:
+        validate_inputs(genome, repeatmodeler_dir, repeatscout_dir)
+    else:
+        if not genome.exists():
+            raise FileNotFoundError(f"Genome FASTA not found: {genome}")
 
-    builddatabase_bin = repeatmodeler_dir / "BuildDatabase"
-    repeatmodeler_bin = repeatmodeler_dir / "RepeatModeler"
+        if not repeatmodeler_library.exists():
+            raise FileNotFoundError(
+                f"RepeatModeler library not found: {repeatmodeler_library}"
+            )
+
+        if not repeatmodeler_library.is_file():
+            raise ValueError(
+                f"RepeatModeler library is not a file: {repeatmodeler_library}"
+            )
+
+        if repeatmodeler_library.stat().st_size == 0:
+            raise ValueError(
+                f"RepeatModeler library is empty: {repeatmodeler_library}"
+            )
 
     logger.info("Starting Step1.RepModAnnotation")
     logger.info("Genome: %s", genome)
@@ -323,36 +343,66 @@ def run_step1(
     logger.info("Output directory: %s", outdir)
 
     logger.info("Step 1/4: preparing genome FASTA")
-    genome_fa = prepare_genome(genome, assemblies_dir, species, logger=logger)
+    genome_fa = prepare_genome(
+        genome,
+        assemblies_dir,
+        species,
+        logger=logger,
+    )
 
-    logger.info("Step 2/4: checking/building RepeatModeler database")
+    builddatabase_bin = repeatmodeler_dir / "BuildDatabase"
+    repeatmodeler_bin = repeatmodeler_dir / "RepeatModeler"
     db_prefix = assemblies_dir / species
     rm_log = rmodeler_dir / f"{species}.RMrun.out"
 
-    if repeatmodeler_db_exists(assemblies_dir, species):
-        logger.info("RepeatModeler database already exists for %s", db_prefix)
-    else:
-        run_command(
-            [
-                str(builddatabase_bin),
-                "-name", str(db_prefix),
-                str(genome_fa),
-            ],
-            logger=logger,
+    if repeatmodeler_library is None:
+        logger.info(
+            "Step 2/4: checking/building RepeatModeler database"
         )
 
-    logger.info("Step 3/4: checking/running RepeatModeler")
-    consensi = find_repeatmodeler_library(rmodeler_dir)
+        if repeatmodeler_db_exists(assemblies_dir, species):
+            logger.info(
+                "RepeatModeler database already exists for %s",
+                db_prefix,
+            )
+        else:
+            run_command(
+                [
+                    str(builddatabase_bin),
+                    "-name",
+                    str(db_prefix),
+                    str(genome_fa),
+                ],
+                logger=logger,
+            )
+
+        logger.info("Step 3/4: checking/running RepeatModeler")
+        consensi = find_repeatmodeler_library(rmodeler_dir)
+    else:
+        logger.info(
+            "Using externally supplied RepeatModeler library: %s",
+            repeatmodeler_library,
+        )
+        logger.info(
+            "Skipping BuildDatabase and RepeatModeler execution"
+        )
+        consensi = repeatmodeler_library
 
     if consensi is None:
-        logger.info("No existing RepeatModeler library found; running RepeatModeler")
+        logger.info(
+            "No existing RepeatModeler library found; running RepeatModeler"
+        )
+
         try:
             run_command_to_logger_and_file(
                 [
                     str(repeatmodeler_bin),
-                    "-rscout_dir", str(repeatscout_dir),
-                    "-database", str(db_prefix),
-                    "-threads", str(threads),
+                    "-rscout_dir",
+                    str(repeatscout_dir),
+                    "-database",
+                    str(db_prefix),
+                    "-threads",
+                    str(threads),
                 ],
                 log_file=rm_log,
                 cwd=rmodeler_dir,
@@ -361,44 +411,105 @@ def run_step1(
             )
         except RuntimeError:
             log_tail(rm_log, n=80, logger=logger)
-            raise RuntimeError(f"RepeatModeler failed; see log: {rm_log}")
+            raise RuntimeError(
+                f"RepeatModeler failed; see log: {rm_log}"
+            )
 
         consensi = find_repeatmodeler_library(rmodeler_dir)
 
         if consensi is None:
             rmoutdir = parse_repeatmodeler_output_dir(rm_log)
+
             if rmoutdir is not None:
                 candidate = rmoutdir / "consensi.fa.classified"
+
                 if candidate.exists() and candidate.stat().st_size > 0:
                     consensi = candidate
 
         if consensi is None:
             raise RuntimeError(
-                "RepeatModeler appears to have completed, but no valid consensi.fa.classified was found."
+                "RepeatModeler appears to have completed, but no valid "
+                "consensi.fa.classified was found."
             )
-    else:
-        logger.info("Found existing RepeatModeler library: %s", consensi)
+
+    elif repeatmodeler_library is None:
+        logger.info(
+            "Found existing RepeatModeler library: %s",
+            consensi,
+        )
 
     logger.info("Using RepeatModeler library: %s", consensi)
 
+    # Always put the selected library in the standard discovery location.
     copied_consensi = rmodeler_dir / "consensi.fa.classified"
+
     if consensi.resolve() != copied_consensi.resolve():
-        copy_if_missing(consensi, copied_consensi, logger=logger)
+        if repeatmodeler_library is not None:
+            logger.info(
+                "Copying %s -> %s",
+                consensi,
+                copied_consensi,
+            )
+            shutil.copyfile(consensi, copied_consensi)
+        else:
+            copy_if_missing(
+                consensi,
+                copied_consensi,
+                logger=logger,
+            )
     else:
-        logger.info("Library already in standard location: %s", copied_consensi)
+        logger.info(
+            "Library already in standard location: %s",
+            copied_consensi,
+        )
 
+    # Preserve the original Step 1 output contract.
     species_families = rmodeler_dir / f"{species}-families.fa"
-    copy_if_missing(copied_consensi, species_families, logger=logger)
 
-    edited_fasta = rmodeler_dir / f"{species}-families.mod.fa"
-    if edited_fasta.exists() and edited_fasta.stat().st_size > 0:
-        logger.info("Normalized family FASTA already exists: %s", edited_fasta)
+    if repeatmodeler_library is not None:
+        logger.info(
+            "Copying %s -> %s",
+            copied_consensi,
+            species_families,
+        )
+        shutil.copyfile(copied_consensi, species_families)
     else:
-        normalize_family_headers(copied_consensi, edited_fasta, species, logger=logger)
+        copy_if_missing(
+            copied_consensi,
+            species_families,
+            logger=logger,
+        )
+
+    # Use the existing normalization function for both paths.
+    edited_fasta = rmodeler_dir / f"{species}-families.mod.fa"
+
+    if (
+        repeatmodeler_library is None
+        and edited_fasta.exists()
+        and edited_fasta.stat().st_size > 0
+    ):
+        logger.info(
+            "Normalized family FASTA already exists: %s",
+            edited_fasta,
+        )
+    else:
+        normalize_family_headers(
+            copied_consensi,
+            edited_fasta,
+            species,
+            logger=logger,
+        )
 
     logger.info("Step 4/4: checking/running RepeatMasker")
-    if repeatmasker_outputs_exist(assemblies_dir, rmasker_dir, species):
-        logger.info("RepeatMasker outputs already exist; skipping RepeatMasker")
+
+    if repeatmasker_outputs_exist(
+        assemblies_dir,
+        rmasker_dir,
+        species,
+    ):
+        logger.info(
+            "RepeatMasker outputs already exist; skipping RepeatMasker"
+        )
     else:
         run_command(
             [
@@ -407,15 +518,22 @@ def run_step1(
                 "-gc",
                 "-gff",
                 "-norna",
-                "-pa", str(threads),
-                "-lib", str(copied_consensi),
+                "-pa",
+                str(threads),
+                "-lib",
+                str(copied_consensi),
                 "-s",
                 str(genome_fa),
             ],
             logger=logger,
         )
 
-    move_repeatmasker_outputs(assemblies_dir, rmasker_dir, species, logger=logger)
+    move_repeatmasker_outputs(
+        assemblies_dir,
+        rmasker_dir,
+        species,
+        logger=logger,
+    )
 
     logger.info("Step1 completed successfully")
     logger.info("Key outputs:")
@@ -433,9 +551,10 @@ def run_step1(
         "raw_library": str(copied_consensi),
         "species_families": str(species_families),
         "normalized_library": str(edited_fasta),
-        "repeatmasker_tbl": str(rmasker_dir / f"{species}.fa.tbl"),
+        "repeatmasker_tbl": str(
+            rmasker_dir / f"{species}.fa.tbl"
+        ),
     }
-
 
 def main() -> None:
     args = parse_args()

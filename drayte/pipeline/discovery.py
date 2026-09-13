@@ -6,6 +6,7 @@ from drayte.step1_repmodannotation import run_step1
 
 def run(config, logger) -> dict:
     outdir = stage_dir(config.outdir_path, "discovery")
+    repeatmodeler_library = config.extra.get("repeatmodeler_library")
 
     logger.info("=" * 80)
     logger.info("STAGE: discovery")
@@ -20,6 +21,9 @@ def run(config, logger) -> dict:
         repeatmodeler_dir=Path(config.extra["repeatmodeler_dir"]),
         repeatscout_dir=Path(config.extra["repeatscout_dir"]),
         repeatmasker_bin=config.extra.get("repeatmasker_bin", "RepeatMasker"),
+        repeatmodeler_library=(
+            Path(repeatmodeler_library) if repeatmodeler_library else None
+        ),
         logger=logger,
     )
 
