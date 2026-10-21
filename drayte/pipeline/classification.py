@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+
+from Bio import SeqIO
+
 from drayte.classification.complexity_detect import detect_complexity_from_fasta
 from drayte.classification.features import (
     build_families_from_evidence,
@@ -69,6 +73,98 @@ def require_db_for_missing_cache(
     )
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def selected_extensionwork_sha256(extensionwork_dir: Path) -> str:
+    digest = hashlib.sha256()
+    if not extensionwork_dir.exists():
+        digest.update(b"missing")
+        return digest.hexdigest()
+
+    selected: list[Path] = []
+    for filename in ("repam-ranges.tsv", "repam-repseq.fa"):
+        selected.extend(extensionwork_dir.glob(f"*/{filename}"))
+
+    for path in sorted(
+        selected,
+        key=lambda item: str(item.relative_to(extensionwork_dir)),
+    ):
+        relative = str(path.relative_to(extensionwork_dir))
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        with open(path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+
+    return digest.hexdigest()
+
+
+def classification_input_signature(
+    library: Path,
+    structure_library: Path,
+    extensionwork_dir: Path,
+    classification_cfg: dict,
+    stage_name: str,
+    final_mode: bool,
+) -> dict:
+    config_json = json.dumps(classification_cfg, sort_keys=True, default=str)
+    return {
+        "schema_version": 1,
+        "stage_name": stage_name,
+        "final_mode": final_mode,
+        "library_sha256": sha256_file(library),
+        "structure_library_sha256": sha256_file(structure_library),
+        "extensionwork_sha256": selected_extensionwork_sha256(extensionwork_dir),
+        "classification_config_sha256": hashlib.sha256(
+            config_json.encode("utf-8")
+        ).hexdigest(),
+    }
+
+
+def manifest_outputs_are_valid(result: dict) -> bool:
+    required_keys = (
+        "structure_evidence",
+        "classifications_tsv",
+        "evidence_tsv",
+        "classified_library",
+    )
+    for key in required_keys:
+        value = result.get(key)
+        if not value:
+            return False
+        path = Path(value)
+        if not path.exists() or path.stat().st_size == 0:
+            return False
+    return True
+
+
+def fasta_sequences_by_family(fasta: Path) -> dict[str, str]:
+    sequences: dict[str, str] = {}
+    for record in SeqIO.parse(str(fasta), "fasta"):
+        family_id = record.id.split("#", 1)[0]
+        if family_id in sequences:
+            raise ValueError(f"Duplicate family identifier in {fasta}: {family_id}")
+        sequences[family_id] = str(record.seq).upper()
+    return sequences
+
+
+def classified_library_matches_input(input_fasta: Path, output_fasta: Path) -> bool:
+    if not output_fasta.exists() or output_fasta.stat().st_size == 0:
+        return False
+    try:
+        input_sequences = fasta_sequences_by_family(input_fasta)
+        output_sequences = fasta_sequences_by_family(output_fasta)
+    except (OSError, ValueError):
+        return False
+    return bool(input_sequences) and input_sequences == output_sequences
+
+
 def run(
     config,
     curation_result: dict,
@@ -88,14 +184,73 @@ def run(
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
-    if manifest.exists():
-        logger.info("Classification manifest already exists; skipping")
-        return json.loads(manifest.read_text())
-
     library = Path(curation_result["final_library"])
     validate_file(library, "curated TE library")
 
     classification_cfg = config.extra.get("classification", {})
+
+    extensionwork_dir = Path(
+        classification_cfg.get(
+            "repam_extensionwork_dir",
+            config.outdir_path / "extension" / "extensionwork",
+        )
+    )
+
+    # Structural evidence is generated for the broad discovery/extension
+    # family universe, not only the curated final library. The curated library
+    # can omit families that still have REPAM/TSD evidence in extensionwork.
+    structure_library = resolve_structure_input_fasta(
+        config=config,
+        classification_cfg=classification_cfg,
+        outdir=outdir,
+        fallback_fasta=library,
+        logger=logger,
+    )
+    validate_file(structure_library, "structure input library")
+
+    input_signature = classification_input_signature(
+        library=library,
+        structure_library=structure_library,
+        extensionwork_dir=extensionwork_dir,
+        classification_cfg=classification_cfg,
+        stage_name=stage_name,
+        final_mode=final_mode,
+    )
+
+    if manifest.exists():
+        try:
+            cached_result = json.loads(manifest.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read classification manifest; resuming: %s", exc)
+        else:
+            cached_signature = cached_result.get("input_signature")
+            if cached_signature is not None and cached_signature != input_signature:
+                raise RuntimeError(
+                    "Existing classification outputs were created from different "
+                    "inputs or settings. Move the existing classification stage "
+                    "directory aside, or use a new outdir, before restarting."
+                )
+
+            if cached_signature is None:
+                output_value = cached_result.get("classified_library")
+                if not output_value or not classified_library_matches_input(
+                    structure_library,
+                    Path(output_value),
+                ):
+                    raise RuntimeError(
+                        "Legacy classification manifest cannot be matched to the "
+                        "current input library. Move the existing classification "
+                        "stage directory aside, or use a new outdir, before "
+                        "restarting."
+                    )
+
+            if manifest_outputs_are_valid(cached_result):
+                cached_result["input_signature"] = input_signature
+                write_json(manifest, cached_result)
+                logger.info("Validated existing classification outputs; skipping")
+                return cached_result
+
+            logger.warning("Classification cache is incomplete; resuming stage")
 
     min_orf_nt = int(classification_cfg.get("min_orf_nt", 300))
     forward_only = bool(classification_cfg.get("forward_only", False))
@@ -117,17 +272,6 @@ def run(
 
     structure_tsv = outdir / f"{species}.structure_summary.tsv"
     repam_tsd_tsv = outdir / f"{species}.repam_tsd.tsv"
-
-    # Structural evidence is generated for the broad discovery/extension
-    # family universe, not only the curated final library. The curated library
-    # can omit families that still have REPAM/TSD evidence in extensionwork.
-    structure_library = resolve_structure_input_fasta(
-        config=config,
-        classification_cfg=classification_cfg,
-        outdir=outdir,
-        fallback_fasta=library,
-        logger=logger,
-    )
 
     legacy_structure_tsv = outdir / f"{species}.structure.tsv"
 
@@ -167,13 +311,6 @@ def run(
 
         logger.info("Detecting terminal LTR/TRIM/LARD structure evidence")
         ltr_detections = detect_ltrs_from_fasta(structure_library)
-
-        extensionwork_dir = Path(
-            classification_cfg.get(
-                "repam_extensionwork_dir",
-                config.outdir_path / "extension" / "extensionwork",
-            )
-        )
 
         if extensionwork_dir.exists():
             logger.info("Inferring REPAM TSD evidence from %s", extensionwork_dir)
@@ -435,6 +572,7 @@ def run(
         "n_families": len(results),
         "n_classified": classified,
         "n_unknown": unknown,
+        "input_signature": input_signature,
     }
 
     write_json(manifest, result)

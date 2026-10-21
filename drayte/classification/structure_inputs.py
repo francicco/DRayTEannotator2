@@ -78,15 +78,22 @@ def build_structure_input_fasta(
     structure summary from losing consensus lengths for families that were later
     removed from curated/final annotation libraries.
     """
+    extension_fastas = list(_iter_extension_rep_fastas(extension_final_consensuses))
+    source_fastas = [base_fasta, *extension_fastas]
+    if _valid_fasta(heliano_fasta):
+        source_fastas.append(heliano_fasta)
+
     if output_fasta.exists() and output_fasta.stat().st_size > 0 and not force:
-        return output_fasta
+        newest_source_mtime = max(path.stat().st_mtime_ns for path in source_fastas)
+        if output_fasta.stat().st_mtime_ns >= newest_source_mtime:
+            return output_fasta
 
     records = _records_by_clean_id(base_fasta)
     n_base = len(records)
     n_extension = 0
     n_heliano = 0
 
-    for rep_fa in _iter_extension_rep_fastas(extension_final_consensuses):
+    for rep_fa in extension_fastas:
         parsed = list(SeqIO.parse(str(rep_fa), "fasta"))
         if not parsed:
             continue
