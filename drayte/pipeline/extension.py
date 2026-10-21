@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import csv
 import gzip
+import hashlib
 import shutil
 import subprocess
 from pathlib import Path
@@ -131,6 +133,107 @@ def write_summary(summary_file: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def extension_input_signature(
+    query_fasta: Path,
+    genome_fasta: Path,
+    config,
+) -> dict:
+    extend_script = Path(config.extra["repeatmodeler_extend_script"]).resolve()
+    return {
+        "schema_version": 2,
+        "species": config.species,
+        "query_fasta_sha256": sha256_file(query_fasta),
+        "genome_fasta_sha256": sha256_file(genome_fasta),
+        "extension_max_hits": int(config.extra.get("extension_max_hits", 50)),
+        "extension_left_buffer": int(config.extra.get("extension_left_buffer", 100)),
+        "extension_right_buffer": int(config.extra.get("extension_right_buffer", 100)),
+        "repeatmodeler_extend_script": str(extend_script),
+        "repeatmodeler_extend_script_sha256": sha256_file(extend_script),
+        "ucsc_tools_dir": str(Path(config.extra["ucsc_tools_dir"]).resolve()),
+        "repeatmodeler_dir": str(Path(config.extra["repeatmodeler_dir"]).resolve()),
+        "repeat_after_me_dir": str(
+            Path(config.extra["repeat_after_me_dir"]).resolve()
+        ),
+        "phrap_dir": str(Path(config.extra["phrap_dir"]).resolve()),
+    }
+
+
+def extension_signatures_compatible(cached: dict, current: dict) -> bool:
+    if cached.get("schema_version") == current.get("schema_version"):
+        return cached == current
+
+    if cached.get("schema_version") == 1 and current.get("schema_version") == 2:
+        version_one_keys = {
+            "schema_version",
+            "species",
+            "query_fasta_sha256",
+            "genome_fasta_sha256",
+            "extension_max_hits",
+            "extension_left_buffer",
+            "extension_right_buffer",
+            "repeatmodeler_extend_script",
+        }
+        normalized_current = {
+            key: (1 if key == "schema_version" else current.get(key))
+            for key in version_one_keys
+        }
+        return all(cached.get(key) == value for key, value in normalized_current.items())
+
+    return False
+
+
+def validate_extension_outputs(
+    result: dict,
+    extensionwork: Path,
+    final_consensuses: Path,
+) -> tuple[bool, str]:
+    summary_value = result.get("summary_tsv")
+    if not summary_value:
+        return False, "manifest has no summary_tsv"
+
+    summary_file = Path(summary_value)
+    if not summary_file.exists() or summary_file.stat().st_size == 0:
+        return False, f"missing or empty summary: {summary_file}"
+
+    with open(summary_file) as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+
+    n_ok = sum(row.get("status") == "ok" for row in rows)
+    n_failed = len(rows) - n_ok
+    if n_ok != int(result.get("n_ok", -1)):
+        return False, "summary n_ok does not match manifest"
+    if n_failed != int(result.get("n_failed", -1)):
+        return False, "summary n_failed does not match manifest"
+    if not rows:
+        return False, "summary contains no families"
+    if n_failed:
+        return False, f"summary contains {n_failed} failed families"
+
+    for row in rows:
+        if row.get("status") != "ok":
+            continue
+
+        te_id = row.get("te_id", "")
+        safe_te_id = safe_filename(te_id)
+        workdir = extensionwork / safe_te_id
+        final_rep = final_consensuses / f"{safe_te_id}_rep.fa"
+
+        if not workdir.is_dir():
+            return False, f"missing extension work directory: {workdir}"
+        if not final_rep.exists() or final_rep.stat().st_size == 0:
+            return False, f"missing or empty final consensus: {final_rep}"
+
+    return True, "outputs are complete"
+
+
 #def run(config, discovery_result: dict, structure_result: Optional[dict], logger) -> dict:
 def run(config, discovery_result: dict, logger) -> dict:
     outdir = stage_dir(config.outdir_path, "extension")
@@ -170,6 +273,74 @@ def run(config, discovery_result: dict, logger) -> dict:
     filtered_fasta = rmodeler_dir / f"{taxon}-families.filtered.fa"
     final_query_fasta = rmodeler_dir / f"{taxon}-families.mod.fa"
 
+    if not final_query_fasta.exists() or final_query_fasta.stat().st_size == 0:
+        if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
+            n_kept = filter_fasta_by_length(
+                candidate_library,
+                filtered_fasta,
+                min_length=100,
+            )
+            logger.info("Filtered consensuses >=100 bp: %d", n_kept)
+
+        n_renamed = rename_repeatmodeler_headers(
+            filtered_fasta,
+            final_query_fasta,
+            species=taxon,
+        )
+        logger.info("Renamed consensus headers: %d", n_renamed)
+
+    input_signature = extension_input_signature(
+        query_fasta=final_query_fasta,
+        genome_fasta=genome_fa,
+        config=config,
+    )
+
+    manifest = outdir / "extension.manifest.json"
+    if manifest.exists():
+        try:
+            cached_result = json.loads(manifest.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Could not read extension manifest; resuming stage: %s", exc)
+        else:
+            cached_signature = cached_result.get("input_signature")
+            if cached_signature is not None and not extension_signatures_compatible(
+                cached_signature,
+                input_signature,
+            ):
+                raise RuntimeError(
+                    "Existing extension outputs were created from different "
+                    "inputs or settings. Use a new outdir, or move the existing "
+                    "extension and downstream stage directories aside before "
+                    "restarting."
+                )
+
+            blast_query_copy = blastfiles / final_query_fasta.name
+            if cached_signature is None:
+                if (
+                    not blast_query_copy.exists()
+                    or blast_query_copy.stat().st_size == 0
+                    or sha256_file(blast_query_copy)
+                    != input_signature["query_fasta_sha256"]
+                ):
+                    raise RuntimeError(
+                        "Legacy extension manifest cannot be matched to the "
+                        "current query library. Use a new outdir, or move the "
+                        "existing extension and downstream stage directories "
+                        "aside before restarting."
+                    )
+
+            valid, reason = validate_extension_outputs(
+                cached_result,
+                extensionwork=extensionwork,
+                final_consensuses=final_consensuses,
+            )
+            if valid:
+                cached_result["input_signature"] = input_signature
+                logger.info("Validated existing extension outputs; skipping")
+                return cached_result
+
+            logger.warning("Extension cache is incomplete (%s); resuming", reason)
+
     if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
         n_kept = filter_fasta_by_length(candidate_library, filtered_fasta, min_length=100)
         logger.info("Filtered consensuses >=100 bp: %d", n_kept)
@@ -183,7 +354,14 @@ def run(config, discovery_result: dict, logger) -> dict:
         logger.info("Normalized candidate FASTA already exists: %s", final_query_fasta)
 
     blast_query_copy = blastfiles / final_query_fasta.name
-    if not blast_query_copy.exists() or blast_query_copy.stat().st_size == 0:
+    if blast_query_copy.exists() and blast_query_copy.stat().st_size > 0:
+        if sha256_file(blast_query_copy) != input_signature["query_fasta_sha256"]:
+            raise RuntimeError(
+                "Cached extension query library differs from the current "
+                "library. Use a new outdir, or move the existing extension "
+                "and downstream stage directories aside before restarting."
+            )
+    else:
         shutil.copy2(final_query_fasta, blast_query_copy)
 
     blast_out = run_blast(
@@ -204,11 +382,17 @@ def run(config, discovery_result: dict, logger) -> dict:
     )
 
     extend_script = config.extra["repeatmodeler_extend_script"]
+
+    ucsc_tools_dir = config.extra["ucsc_tools_dir"]
+    repeatmodeler_dir = config.extra["repeatmodeler_dir"]
+    repeat_after_me_dir = config.extra["repeat_after_me_dir"]
+    phrap_dir = config.extra["phrap_dir"]
+
     summary_rows: list[dict] = []
 
     for te_id, cat_file in extracted.items():
         safe_te_id = safe_filename(te_id)
-        
+
         rep_file = final_consensuses / f"{safe_te_id}_rep.fa"
         te_workdir = extensionwork / safe_te_id
         te_log = extendlogs / f"{safe_te_id}.extend.log"
@@ -230,6 +414,10 @@ def run(config, discovery_result: dict, logger) -> dict:
                     family_fasta=cat_file,
                     workdir=te_workdir,
                     logfile=te_log,
+                    ucsc_tools_dir=ucsc_tools_dir,
+                    repeatmodeler_dir=repeatmodeler_dir,
+                    repeat_after_me_dir=repeat_after_me_dir,
+                    phrap_dir=phrap_dir,
                 )
 
             rep_fa, msa_fa, png_file, hit_count, consensus_length = postprocess_extension_outputs(
@@ -303,7 +491,15 @@ def run(config, discovery_result: dict, logger) -> dict:
         "summary_tsv": str(summary_file),
         "n_ok": n_ok,
         "n_failed": n_fail,
+        "input_signature": input_signature,
     }
+
+    if n_ok == 0:
+        manifest.write_text(json.dumps(result, indent=2) + "\n")
+        raise RuntimeError(
+            "Extension produced no successful consensuses "
+            f"(0 ok, {n_fail} failed); see {summary_file} and the extendlogs directory"
+        )
 
     return result
 

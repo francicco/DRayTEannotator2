@@ -261,6 +261,9 @@ repeatclassifier_bin: RepeatClassifier
 
 # Extension
 repeatmodeler_extend_script: davidExtendConsRAM.pl
+ucsc_tools_dir: /path/to/kent/bin
+repeat_after_me_dir: /path/to/RepeatAfterMe
+phrap_dir: /path/to/phrap
 
 # Refinement
 refine_mode: loose

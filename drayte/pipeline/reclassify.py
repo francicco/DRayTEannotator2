@@ -4,6 +4,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from Bio import SeqIO
+
 from drayte.utils.paths import stage_dir, ensure_dir
 
 
@@ -25,13 +27,52 @@ def gather_extended_consensi(final_consensus_dir: Path, taxon: str, outfile: Pat
     return len(files)
 
 
+def fasta_sequences_by_family(fasta: Path) -> dict[str, str]:
+    sequences: dict[str, str] = {}
+    for record in SeqIO.parse(str(fasta), "fasta"):
+        family_id = record.id.split("#", 1)[0]
+        if family_id in sequences:
+            raise ValueError(f"Duplicate family identifier in {fasta}: {family_id}")
+        sequences[family_id] = str(record.seq).upper()
+    return sequences
+
+
+def classified_output_matches_input(consensi_fa: Path, classified_fa: Path) -> bool:
+    if not classified_fa.exists() or classified_fa.stat().st_size == 0:
+        return False
+    try:
+        input_sequences = fasta_sequences_by_family(consensi_fa)
+        output_sequences = fasta_sequences_by_family(classified_fa)
+    except (OSError, ValueError):
+        return False
+    return bool(input_sequences) and input_sequences == output_sequences
+
+
+def archive_stale_output(path: Path) -> Path:
+    candidate = path.with_name(f"{path.name}.stale")
+    counter = 1
+    while candidate.exists():
+        candidate = path.with_name(f"{path.name}.stale.{counter}")
+        counter += 1
+    path.replace(candidate)
+    return candidate
+
+
 def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: str, logger) -> Path:
     outdir = ensure_dir(outdir)
     expected = outdir / f"{consensi_fa.name}.classified"
 
-    if expected.exists() and expected.stat().st_size > 0:
-        logger.info("RepeatClassifier output already exists: %s", expected)
+    if classified_output_matches_input(consensi_fa, expected):
+        logger.info("Validated existing RepeatClassifier output: %s", expected)
         return expected
+
+    if expected.exists():
+        archived = archive_stale_output(expected)
+        logger.warning(
+            "Existing RepeatClassifier output does not match the current "
+            "merged library; moved it to %s",
+            archived,
+        )
 
     cmd = [
         repeatclassifier_bin,
