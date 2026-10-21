@@ -146,18 +146,48 @@ def extension_input_signature(
     genome_fasta: Path,
     config,
 ) -> dict:
+    extend_script = Path(config.extra["repeatmodeler_extend_script"]).resolve()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "species": config.species,
         "query_fasta_sha256": sha256_file(query_fasta),
         "genome_fasta_sha256": sha256_file(genome_fasta),
         "extension_max_hits": int(config.extra.get("extension_max_hits", 50)),
         "extension_left_buffer": int(config.extra.get("extension_left_buffer", 100)),
         "extension_right_buffer": int(config.extra.get("extension_right_buffer", 100)),
-        "repeatmodeler_extend_script": str(
-            Path(config.extra["repeatmodeler_extend_script"]).resolve()
+        "repeatmodeler_extend_script": str(extend_script),
+        "repeatmodeler_extend_script_sha256": sha256_file(extend_script),
+        "ucsc_tools_dir": str(Path(config.extra["ucsc_tools_dir"]).resolve()),
+        "repeatmodeler_dir": str(Path(config.extra["repeatmodeler_dir"]).resolve()),
+        "repeat_after_me_dir": str(
+            Path(config.extra["repeat_after_me_dir"]).resolve()
         ),
+        "phrap_dir": str(Path(config.extra["phrap_dir"]).resolve()),
     }
+
+
+def extension_signatures_compatible(cached: dict, current: dict) -> bool:
+    if cached.get("schema_version") == current.get("schema_version"):
+        return cached == current
+
+    if cached.get("schema_version") == 1 and current.get("schema_version") == 2:
+        version_one_keys = {
+            "schema_version",
+            "species",
+            "query_fasta_sha256",
+            "genome_fasta_sha256",
+            "extension_max_hits",
+            "extension_left_buffer",
+            "extension_right_buffer",
+            "repeatmodeler_extend_script",
+        }
+        normalized_current = {
+            key: (1 if key == "schema_version" else current.get(key))
+            for key in version_one_keys
+        }
+        return all(cached.get(key) == value for key, value in normalized_current.items())
+
+    return False
 
 
 def validate_extension_outputs(
@@ -182,6 +212,10 @@ def validate_extension_outputs(
         return False, "summary n_ok does not match manifest"
     if n_failed != int(result.get("n_failed", -1)):
         return False, "summary n_failed does not match manifest"
+    if not rows:
+        return False, "summary contains no families"
+    if n_failed:
+        return False, f"summary contains {n_failed} failed families"
 
     for row in rows:
         if row.get("status") != "ok":
@@ -269,7 +303,10 @@ def run(config, discovery_result: dict, logger) -> dict:
             logger.warning("Could not read extension manifest; resuming stage: %s", exc)
         else:
             cached_signature = cached_result.get("input_signature")
-            if cached_signature is not None and cached_signature != input_signature:
+            if cached_signature is not None and not extension_signatures_compatible(
+                cached_signature,
+                input_signature,
+            ):
                 raise RuntimeError(
                     "Existing extension outputs were created from different "
                     "inputs or settings. Use a new outdir, or move the existing "
@@ -456,6 +493,13 @@ def run(config, discovery_result: dict, logger) -> dict:
         "n_failed": n_fail,
         "input_signature": input_signature,
     }
+
+    if n_ok == 0:
+        manifest.write_text(json.dumps(result, indent=2) + "\n")
+        raise RuntimeError(
+            "Extension produced no successful consensuses "
+            f"(0 ok, {n_fail} failed); see {summary_file} and the extendlogs directory"
+        )
 
     return result
 
