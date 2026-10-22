@@ -1,6 +1,7 @@
 import csv
 
 from drayte.pipeline.extension import (
+    candidate_matches_cached_extension_query,
     extension_signatures_compatible,
     fasta_libraries_equivalent,
     validate_extension_outputs,
@@ -187,3 +188,42 @@ def test_fasta_libraries_equivalent_rejects_changed_identifiers(tmp_path):
     assert not equivalent
     assert "cached identifiers are missing" in reason
     assert "current identifiers are absent" in reason
+
+
+def test_candidate_matches_legacy_filtered_and_encoded_extension_query(tmp_path):
+    candidate = tmp_path / "external-library.fa"
+    cached = tmp_path / "cached-extension-query.fa"
+    candidate.write_text(
+        ">rnd-1_family-1#LINE/L1\n" + "ACGT" * 30 + "\n"
+        ">rnd-1_family-2#Unknown\n" + "TGCA" * 28 + "\n"
+        ">rnd-1_family-short#Unknown\n" + "A" * 99 + "\n"
+    )
+    cached.write_text(
+        ">Mmim-rnd-1_family-2__Unknown\n" + "TGCA" * 28 + "\n"
+        ">Mmim-rnd-1_family-1__LINE___L1\n" + "ACGT" * 30 + "\n"
+    )
+
+    equivalent, reason = candidate_matches_cached_extension_query(
+        candidate_library=candidate,
+        cached_query=cached,
+        species="Mmim",
+    )
+
+    assert equivalent
+    assert "same 2 extension-query identifiers and sequences" in reason
+
+
+def test_candidate_rejects_changed_legacy_extension_sequence(tmp_path):
+    candidate = tmp_path / "external-library.fa"
+    cached = tmp_path / "cached-extension-query.fa"
+    candidate.write_text(">rnd-1_family-1#Unknown\n" + "A" * 100 + "\n")
+    cached.write_text(">Mmim-rnd-1_family-1__Unknown\n" + "C" * 100 + "\n")
+
+    equivalent, reason = candidate_matches_cached_extension_query(
+        candidate_library=candidate,
+        cached_query=cached,
+        species="Mmim",
+    )
+
+    assert not equivalent
+    assert reason == "1 family sequences differ"

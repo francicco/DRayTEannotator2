@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -190,6 +191,40 @@ def fasta_libraries_equivalent(
         return False, f"{len(changed)} family sequences differ"
 
     return True, f"same {len(current_records)} identifiers and sequences"
+
+
+def candidate_matches_cached_extension_query(
+    candidate_library: Path,
+    cached_query: Path,
+    species: str,
+) -> tuple[bool, str]:
+    """Recreate the legacy extension query with the established helpers."""
+    with tempfile.TemporaryDirectory(prefix="drayte-extension-resume-") as tmpdir:
+        temp_dir = Path(tmpdir)
+        filtered_fasta = temp_dir / "families.filtered.fa"
+        normalized_fasta = temp_dir / "families.extension.fa"
+
+        n_kept = filter_fasta_by_length(
+            candidate_library,
+            filtered_fasta,
+            min_length=100,
+        )
+        rename_repeatmodeler_headers(
+            filtered_fasta,
+            normalized_fasta,
+            species=species,
+        )
+        equivalent, comparison = fasta_libraries_equivalent(
+            current_fasta=normalized_fasta,
+            cached_fasta=cached_query,
+        )
+
+    if equivalent:
+        return True, (
+            f"same {n_kept} extension-query identifiers and sequences after "
+            "the established >=100-bp filter and header normalization"
+        )
+    return False, comparison
 
 
 def extension_input_signature(
@@ -382,6 +417,12 @@ def run(config, discovery_result: dict, logger) -> dict:
                         current_fasta=final_query_fasta,
                         cached_fasta=blast_query_copy,
                     )
+                    if not equivalent:
+                        equivalent, comparison = candidate_matches_cached_extension_query(
+                            candidate_library=candidate_library,
+                            cached_query=blast_query_copy,
+                            species=taxon,
+                        )
                     if not equivalent:
                         raise RuntimeError(
                             "Legacy extension manifest cannot be matched to the "
