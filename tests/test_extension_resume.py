@@ -1,9 +1,11 @@
 import csv
+from types import SimpleNamespace
 
 from drayte.pipeline.extension import (
     candidate_matches_cached_extension_query,
     extension_signatures_compatible,
     fasta_libraries_equivalent,
+    trust_complete_legacy_checkpoint,
     validate_extension_outputs,
 )
 
@@ -227,3 +229,64 @@ def test_candidate_rejects_changed_legacy_extension_sequence(tmp_path):
 
     assert not equivalent
     assert reason == "1 family sequences differ"
+
+
+def test_trusted_legacy_checkpoint_requires_complete_outputs_and_pins_query(tmp_path):
+    extensionwork = tmp_path / "extensionwork"
+    final_consensuses = tmp_path / "final_consensuses"
+    family_id = "Mmim-rnd-1_family-1__Unknown"
+    (extensionwork / family_id).mkdir(parents=True)
+    final_consensuses.mkdir()
+    (final_consensuses / f"{family_id}_rep.fa").write_text(">family\nACGT\n")
+
+    summary = tmp_path / "extension_summary.tsv"
+    write_summary(summary, [{"te_id": family_id, "status": "ok"}])
+    cached_query = tmp_path / "Mmim-families.mod.fa"
+    cached_query.write_text(f">{family_id}\nACGT\n")
+    config = SimpleNamespace(extra={"classification": {}})
+    result = {
+        "summary_tsv": str(summary),
+        "n_ok": 1,
+        "n_failed": 0,
+    }
+
+    trusted, reason = trust_complete_legacy_checkpoint(
+        result,
+        extensionwork=extensionwork,
+        final_consensuses=final_consensuses,
+        cached_query=cached_query,
+        config=config,
+    )
+
+    assert trusted, reason
+    assert config.extra["classification"]["structure_base_fasta"] == str(cached_query)
+    assert result["resume_validation"]["mode"] == "trusted_legacy_extension"
+    assert "input_signature" not in result
+
+
+def test_trusted_legacy_checkpoint_rejects_incomplete_outputs(tmp_path):
+    extensionwork = tmp_path / "extensionwork"
+    final_consensuses = tmp_path / "final_consensuses"
+    extensionwork.mkdir()
+    final_consensuses.mkdir()
+    summary = tmp_path / "extension_summary.tsv"
+    write_summary(summary, [{"te_id": "missing-family", "status": "ok"}])
+    cached_query = tmp_path / "cached.fa"
+    cached_query.write_text(">missing-family\nACGT\n")
+    config = SimpleNamespace(extra={})
+
+    trusted, reason = trust_complete_legacy_checkpoint(
+        {
+            "summary_tsv": str(summary),
+            "n_ok": 1,
+            "n_failed": 0,
+        },
+        extensionwork=extensionwork,
+        final_consensuses=final_consensuses,
+        cached_query=cached_query,
+        config=config,
+    )
+
+    assert not trusted
+    assert "missing extension work directory" in reason
+    assert "classification" not in config.extra
