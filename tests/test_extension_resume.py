@@ -2,6 +2,7 @@ import csv
 
 from drayte.pipeline.extension import (
     extension_signatures_compatible,
+    fasta_libraries_equivalent,
     validate_extension_outputs,
 )
 
@@ -142,3 +143,47 @@ def test_version_two_signature_detects_changed_tool_directory():
     current = {**cached, "ucsc_tools_dir": "/tools/ucsc-v2"}
 
     assert not extension_signatures_compatible(cached, current)
+
+
+def test_fasta_libraries_equivalent_ignores_order_wrapping_and_descriptions(tmp_path):
+    current = tmp_path / "current.fa"
+    cached = tmp_path / "cached.fa"
+
+    current.write_text(
+        ">family-1#Unknown current description\nACGTACGT\n"
+        ">family-2#LINE/L1\nTTTTAAAA\n"
+    )
+    cached.write_text(
+        ">family-2#LINE/L1 cached description\nTTTT\nAAAA\n"
+        ">family-1#Unknown\nACGT\nACGT\n"
+    )
+
+    equivalent, reason = fasta_libraries_equivalent(current, cached)
+
+    assert equivalent
+    assert reason == "same 2 identifiers and sequences"
+
+
+def test_fasta_libraries_equivalent_rejects_changed_sequence(tmp_path):
+    current = tmp_path / "current.fa"
+    cached = tmp_path / "cached.fa"
+    current.write_text(">family-1#Unknown\nACGT\n")
+    cached.write_text(">family-1#Unknown\nACGA\n")
+
+    equivalent, reason = fasta_libraries_equivalent(current, cached)
+
+    assert not equivalent
+    assert reason == "1 family sequences differ"
+
+
+def test_fasta_libraries_equivalent_rejects_changed_identifiers(tmp_path):
+    current = tmp_path / "current.fa"
+    cached = tmp_path / "cached.fa"
+    current.write_text(">family-new#Unknown\nACGT\n")
+    cached.write_text(">family-old#Unknown\nACGT\n")
+
+    equivalent, reason = fasta_libraries_equivalent(current, cached)
+
+    assert not equivalent
+    assert "cached identifiers are missing" in reason
+    assert "current identifiers are absent" in reason

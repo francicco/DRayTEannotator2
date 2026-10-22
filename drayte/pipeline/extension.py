@@ -141,6 +141,57 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def fasta_library_records(path: Path) -> dict[str, str]:
+    records: dict[str, str] = {}
+    for record in SeqIO.parse(str(path), "fasta"):
+        if record.id in records:
+            raise ValueError(f"duplicate FASTA identifier: {record.id}")
+        records[record.id] = str(record.seq).upper()
+
+    if not records:
+        raise ValueError("FASTA contains no records")
+
+    return records
+
+
+def fasta_libraries_equivalent(
+    current_fasta: Path,
+    cached_fasta: Path,
+) -> tuple[bool, str]:
+    """Compare FASTA content while ignoring record order and text wrapping."""
+    try:
+        current_records = fasta_library_records(current_fasta)
+        cached_records = fasta_library_records(cached_fasta)
+    except (OSError, ValueError) as exc:
+        return False, str(exc)
+
+    current_ids = set(current_records)
+    cached_ids = set(cached_records)
+    if current_ids != cached_ids:
+        missing = sorted(cached_ids - current_ids)
+        added = sorted(current_ids - cached_ids)
+        details = []
+        if missing:
+            details.append(
+                f"{len(missing)} cached identifiers are missing from the current library"
+            )
+        if added:
+            details.append(
+                f"{len(added)} current identifiers are absent from the cached library"
+            )
+        return False, "; ".join(details)
+
+    changed = [
+        family_id
+        for family_id in sorted(current_ids)
+        if current_records[family_id] != cached_records[family_id]
+    ]
+    if changed:
+        return False, f"{len(changed)} family sequences differ"
+
+    return True, f"same {len(current_records)} identifiers and sequences"
+
+
 def extension_input_signature(
     query_fasta: Path,
     genome_fasta: Path,
@@ -316,17 +367,33 @@ def run(config, discovery_result: dict, logger) -> dict:
 
             blast_query_copy = blastfiles / final_query_fasta.name
             if cached_signature is None:
-                if (
-                    not blast_query_copy.exists()
-                    or blast_query_copy.stat().st_size == 0
-                    or sha256_file(blast_query_copy)
-                    != input_signature["query_fasta_sha256"]
-                ):
+                if not blast_query_copy.exists() or blast_query_copy.stat().st_size == 0:
                     raise RuntimeError(
                         "Legacy extension manifest cannot be matched to the "
-                        "current query library. Use a new outdir, or move the "
+                        "current query library because its cached query FASTA "
+                        "is missing or empty. Use a new outdir, or move the "
                         "existing extension and downstream stage directories "
                         "aside before restarting."
+                    )
+
+                cached_query_sha256 = sha256_file(blast_query_copy)
+                if cached_query_sha256 != input_signature["query_fasta_sha256"]:
+                    equivalent, comparison = fasta_libraries_equivalent(
+                        current_fasta=final_query_fasta,
+                        cached_fasta=blast_query_copy,
+                    )
+                    if not equivalent:
+                        raise RuntimeError(
+                            "Legacy extension manifest cannot be matched to the "
+                            "current query library: "
+                            f"{comparison}. Use a new outdir, or move the existing "
+                            "extension and downstream stage directories aside before "
+                            "restarting."
+                        )
+                    logger.warning(
+                        "Legacy extension query differs byte-for-byte but has %s; "
+                        "accepting the completed checkpoint",
+                        comparison,
                     )
 
             valid, reason = validate_extension_outputs(
