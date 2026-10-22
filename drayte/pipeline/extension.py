@@ -320,7 +320,7 @@ def validate_extension_outputs(
     return True, "outputs are complete"
 
 
-def trust_complete_legacy_checkpoint(
+def prepare_complete_extension_checkpoint(
     result: dict,
     extensionwork: Path,
     final_consensuses: Path,
@@ -344,7 +344,7 @@ def trust_complete_legacy_checkpoint(
 
     classification_cfg["structure_base_fasta"] = str(cached_query)
     result["resume_validation"] = {
-        "mode": "trusted_legacy_extension",
+        "mode": "validated_extension_checkpoint",
         "cached_query_fasta": str(cached_query),
         "cached_query_fasta_sha256": sha256_file(cached_query),
     }
@@ -422,29 +422,39 @@ def run(config, discovery_result: dict, logger) -> dict:
             cached_signature = cached_result.get("input_signature")
             blast_query_copy = blastfiles / final_query_fasta.name
 
-            if (
-                cached_signature is None
-                and bool(config.extra.get("resume_legacy_extension", False))
-            ):
-                trusted, reason = trust_complete_legacy_checkpoint(
-                    cached_result,
-                    extensionwork=extensionwork,
-                    final_consensuses=final_consensuses,
-                    cached_query=blast_query_copy,
-                    config=config,
-                )
-                if not trusted:
-                    raise RuntimeError(
-                        "Cannot resume the explicitly requested legacy extension "
-                        f"checkpoint: {reason}."
+            complete, reason = prepare_complete_extension_checkpoint(
+                cached_result,
+                extensionwork=extensionwork,
+                final_consensuses=final_consensuses,
+                cached_query=blast_query_copy,
+                config=config,
+            )
+            if complete:
+                if cached_signature is None:
+                    signature_status = "legacy_manifest"
+                    logger.warning(
+                        "Reusing complete legacy extension checkpoint; the cached "
+                        "extension query is pinned for downstream structure analysis"
                     )
+                elif extension_signatures_compatible(cached_signature, input_signature):
+                    signature_status = "matching_signature"
+                else:
+                    signature_status = "different_current_inputs"
+                    logger.warning(
+                        "Current discovery inputs differ from the complete extension "
+                        "checkpoint; reusing the checkpoint associated with this outdir"
+                    )
+                cached_result["resume_validation"][
+                    "input_signature_status"
+                ] = signature_status
                 logger.warning(
-                    "Explicitly trusting complete legacy extension checkpoint; "
-                    "the current discovery library is not being substituted into "
-                    "the completed extension stage"
+                    "Using cached extension query for downstream structure analysis: %s",
+                    blast_query_copy,
                 )
                 logger.info("Validated existing extension outputs; skipping")
                 return cached_result
+
+            logger.warning("Extension cache is incomplete (%s); resuming", reason)
 
             if cached_signature is not None and not extension_signatures_compatible(
                 cached_signature,
@@ -502,8 +512,6 @@ def run(config, discovery_result: dict, logger) -> dict:
                 cached_result["input_signature"] = input_signature
                 logger.info("Validated existing extension outputs; skipping")
                 return cached_result
-
-            logger.warning("Extension cache is incomplete (%s); resuming", reason)
 
     if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
         n_kept = filter_fasta_by_length(candidate_library, filtered_fasta, min_length=100)

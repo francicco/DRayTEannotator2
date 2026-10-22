@@ -32,15 +32,6 @@ def parse_args() -> argparse.Namespace:
             "RepeatModeler discovery."
         ),
     )
-    parser.add_argument(
-        "--resume-legacy-extension",
-        action="store_true",
-        help=(
-            "Explicitly trust and reuse a complete legacy extension checkpoint "
-            "when it cannot be matched to the current discovery library. The "
-            "cached extension query is used as the downstream structure base."
-        ),
-    )
     return parser.parse_args()
 
 #def parse_args() -> argparse.Namespace:
@@ -63,9 +54,6 @@ def main() -> None:
         config.extra["repeatmodeler_library"] = str(
             Path(args.repeatmodeler_library).expanduser().resolve()
         )
-    if args.resume_legacy_extension:
-        config.extra["resume_legacy_extension"] = True
-
     ensure_dir(config.outdir_path)
     logger = setup_logger(log_file=str(config.outdir_path / "drayte.log"))
 

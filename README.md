@@ -280,21 +280,14 @@ Run with:
 
 `drayte --config config.yaml`
 
-To continue a historical run whose complete extension checkpoint predates input
-signatures, while retaining an external RepeatModeler-library argument, use the
-explicit legacy-resume mode:
+Rerunning the same command against the same output directory automatically
+resumes the analysis. A stage is skipped only after its manifest and required
+outputs have been validated. For extension, the cached query is retained as the
+downstream structure-analysis base so a historical checkpoint is not mixed with
+a subsequently regenerated discovery library.
 
-```
-drayte \
-  --config config.yaml \
-  --repeatmodeler-library /path/to/consensi.fa.classified \
-  --resume-legacy-extension
-```
-
-This mode still validates the extension summary, every extension work directory,
-and every final consensus. It then pins downstream structure analysis to the
-cached extension query instead of mixing the current discovery library into the
-legacy checkpoint.
+Use a new output directory when intentionally starting an analysis with different
+inputs or settings.
 
 -----
 
