@@ -579,8 +579,8 @@ def save_superfamily_plot(
     plt.savefig(outpath)
     plt.close()
 
-def summary_files_exist(outdir: Path, species: str) -> bool:
-    required = [
+def required_summary_files(outdir: Path, species: str) -> list[Path]:
+    return [
         outdir / f"{species}.summaryPie.pdf",
         outdir / f"{species}.highLevelCount.txt",
         outdir / f"{species}.familyLevelCount.txt",
@@ -594,7 +594,29 @@ def summary_files_exist(outdir: Path, species: str) -> bool:
         outdir / f"{species}.highLevel_TE_composition.pdf",
     ]
 
-    return all(f.exists() and f.stat().st_size > 0 for f in required)
+
+def summary_files_exist(outdir: Path, species: str) -> bool:
+    return all(
+        path.exists() and path.stat().st_size > 0
+        for path in required_summary_files(outdir, species)
+    )
+
+
+def summary_files_are_current(
+    outdir: Path,
+    species: str,
+    refined_tsv: Path,
+) -> bool:
+    if not summary_files_exist(outdir, species):
+        return False
+    if not refined_tsv.exists() or refined_tsv.stat().st_size == 0:
+        return True
+
+    input_mtime = refined_tsv.stat().st_mtime
+    return all(
+        path.stat().st_mtime >= input_mtime
+        for path in required_summary_files(outdir, species)
+    )
 
 
 def summary_result_paths(refined_tsv: Path, outdir: Path, species: str) -> dict:
@@ -690,13 +712,18 @@ def run_summary_files(
     logger.info("Output directory: %s", outdir)
     logger.info("=" * 80)
 
-    if summary_files_exist(outdir, species):
+    if summary_files_are_current(outdir, species, refined_tsv):
         logger.info("Summary files already exist; skipping")
         high_level_count = outdir / f"{species}.highLevelCount.txt"
         logger.info("Printing cached summary results from: %s", high_level_count)
         high = pd.read_csv(high_level_count, sep="\t")
         print_high_level_summary(high, species, outdir)
         return summary_result_paths(refined_tsv, outdir, species)
+
+    if summary_files_exist(outdir, species):
+        logger.info(
+            "Refined annotation is newer than the cached summary; regenerating summary files"
+        )
 
     if not refined_tsv.exists() or refined_tsv.stat().st_size == 0:
         raise FileNotFoundError(f"Refined TSV not found or empty: {refined_tsv}")

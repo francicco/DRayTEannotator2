@@ -17,7 +17,10 @@ from drayte.pipeline import (
     report,
     annotation_refinement,
 )
-from drayte.refinement.refine_repeatmasker import refine_repeatmasker
+from drayte.refinement.refine_repeatmasker import (
+    REFINEMENT_ALGORITHM_VERSION,
+    refine_repeatmasker,
+)
 from drayte.reporting.SummaryFilesGen import run_summary_files
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +47,27 @@ def write_manifest(outdir: Path, name: str, data: dict) -> None:
     outpath = outdir / f"{name}.manifest.json"
     with open(outpath, "w") as handle:
         json.dump(data, handle, indent=2)
+
+
+def refinement_checkpoint_is_current(
+    required_outputs: list[Path],
+    manifest_path: Path,
+    expected_parameters: dict,
+) -> bool:
+    if not all(path.exists() and path.stat().st_size > 0 for path in required_outputs):
+        return False
+    if not manifest_path.exists() or manifest_path.stat().st_size == 0:
+        return False
+
+    try:
+        cached = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if cached.get("refinement_algorithm_version") != REFINEMENT_ALGORITHM_VERSION:
+        return False
+
+    return all(cached.get(key) == value for key, value in expected_parameters.items())
 
 
 def log_final_results(
@@ -228,14 +252,58 @@ def main() -> None:
 
     refinement_outdir = config.outdir_path / "Defragmenting_RModAnnotation"
 
-    refined_tsv = refinement_outdir / f"{config.species}.Defragmenting_RModAnnotation.tsv"
+    refined_tsv = refinement_outdir / f"{config.species}.annotation_refinement.tsv"
     filtered_tsv = refinement_outdir / f"{config.species}.filteredRepeats.tsv"
-    stats_tsv = refinement_outdir / f"{config.species}.Defragmenting_RModAnnotation.stats.tsv"
+    stats_tsv = refinement_outdir / f"{config.species}.annotation_refinement.stats.tsv"
+    refinement_manifest = (
+        refinement_outdir / f"{config.species}.annotation_refinement.manifest.json"
+    )
 
-    if (
-        refined_tsv.exists() and refined_tsv.stat().st_size > 0
-        and filtered_tsv.exists() and filtered_tsv.stat().st_size > 0
-        and stats_tsv.exists() and stats_tsv.stat().st_size > 0
+    refinement_cfg = config.extra.get("annotation_refinement", {})
+
+    def refinement_option(name: str, legacy_name: str, default):
+        if legacy_name in config.extra:
+            return config.extra[legacy_name]
+        return refinement_cfg.get(name, default)
+
+    refinement_parameters = {
+        "max_gap": int(refinement_option("max_gap", "refinement_max_gap", 150)),
+        "include_nested": bool(
+            refinement_option("include_nested", "refinement_include_nested", False)
+        ),
+        "mode": refinement_option("mode", "refinement_mode", "loose"),
+        "max_consensus_overlap": int(
+            refinement_option(
+                "max_consensus_overlap",
+                "refinement_max_consensus_overlap",
+                50,
+            )
+        ),
+        "max_consensus_jump": int(
+            refinement_option(
+                "max_consensus_jump",
+                "refinement_max_consensus_jump",
+                10000,
+            )
+        ),
+        "resolve_overlaps": bool(
+            refinement_option(
+                "resolve_overlaps",
+                "refinement_resolve_overlaps",
+                True,
+            )
+        ),
+        "overlap_score": refinement_option(
+            "overlap_score",
+            "refinement_overlap_score",
+            "longest_lowdiv",
+        ),
+    }
+
+    if refinement_checkpoint_is_current(
+        required_outputs=[refined_tsv, filtered_tsv, stats_tsv],
+        manifest_path=refinement_manifest,
+        expected_parameters=refinement_parameters,
     ):
         logger.info("=" * 80)
         logger.info("STAGE: Defragmenting_RModAnnotation")
@@ -243,30 +311,17 @@ def main() -> None:
         logger.info("=" * 80)
         logger.info("TE-refine outputs already exist; skipping")
 
-        refinement_result = {
-            "stage": "Defragmenting_RModAnnotation",
-            "outdir": str(refinement_outdir),
-            "refined_tsv": str(refined_tsv),
-            "filtered_tsv": str(filtered_tsv),
-            "stats_tsv": str(stats_tsv),
-            "refined_gff": str(refinement_outdir / f"{config.species}.refinedRepeats.gff3"),
-            "refined_bed": str(refinement_outdir / f"{config.species}.refinedRepeats.bed"),
-            "filtered_gff": str(refinement_outdir / f"{config.species}.filteredRepeats.gff3"),
-            "filtered_bed": str(refinement_outdir / f"{config.species}.filteredRepeats.bed"),
-            "nested_gff": str(refinement_outdir / f"{config.species}.nestedRepeats.gff3"),
-        }
+        refinement_result = json.loads(refinement_manifest.read_text())
     else:
+        if any(path.exists() for path in [refined_tsv, filtered_tsv, stats_tsv]):
+            logger.info(
+                "Existing refinement checkpoint is outdated or incompatible; regenerating"
+            )
         refinement_result = refine_repeatmasker(
             rmout=Path(final_annotation_result["repeatmasker_out"]),
             species=config.species,
             outdir=refinement_outdir,
-            max_gap=int(config.extra.get("refinement_max_gap", 150)),
-            include_nested=bool(config.extra.get("refinement_include_nested", False)),
-            mode=config.extra.get("refinement_mode", "loose"),
-            max_consensus_overlap=int(config.extra.get("refinement_max_consensus_overlap", 50)),
-            max_consensus_jump=int(config.extra.get("refinement_max_consensus_jump", 10000)),
-            resolve_overlaps=bool(config.extra.get("refinement_resolve_overlaps", True)),
-            overlap_score=config.extra.get("refinement_overlap_score", "longest_lowdiv"),
+            **refinement_parameters,
             logger=logger,
         )
 

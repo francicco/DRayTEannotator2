@@ -363,14 +363,27 @@ def run(config, refinement_result: dict, logger) -> dict:
 
     manifest = outdir / "family_inspection.manifest.json"
 
-    if manifest.exists():
+    # Prefer final filtered annotation if available, otherwise use
+    # overlap-aware refinement.
+    refined_tsv_value = refinement_result.get("filtered_tsv") or refinement_result.get(
+        "refined_tsv"
+    )
+    if refined_tsv_value is None:
+        raise RuntimeError("No refined TSV available for family_inspection")
+    refined_tsv = Path(refined_tsv_value)
+
+    if (
+        manifest.exists()
+        and refined_tsv.exists()
+        and manifest.stat().st_mtime >= refined_tsv.stat().st_mtime
+    ):
         logger.info("family_inspection manifest already exists; skipping")
         return json.loads(manifest.read_text())
     else:
-        # Prefer final filtered annotation if available, otherwise use overlap-aware refinement.
-        refined_tsv = refinement_result.get("filtered_tsv") or refinement_result.get("refined_tsv")
-        if refined_tsv is None:
-            raise RuntimeError("No refined TSV available for family_inspection")
+        if manifest.exists():
+            logger.info(
+                "Refined annotation is newer than family_inspection; rebuilding"
+            )
     
         extension_dir = config.outdir_path / "extension"
     
@@ -379,7 +392,7 @@ def run(config, refinement_result: dict, logger) -> dict:
         result = build_family_inspection(
             species=species,
             outdir=outdir,
-            refined_tsv=Path(refined_tsv),
+            refined_tsv=refined_tsv,
             curated_library=curated_library if curated_library.exists() else None,
             extension_dir=extension_dir,
             use_symlinks=bool(cfg.get("use_symlinks", True)),

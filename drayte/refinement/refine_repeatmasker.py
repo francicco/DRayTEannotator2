@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+REFINEMENT_ALGORITHM_VERSION = 2
+
+
 # ---------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------
@@ -290,43 +293,14 @@ def compatible_for_merge(a: RMHit, b: RMHit, max_gap: int, max_consensus_overlap
 
     return True
 
-def is_ignorable_intervening_hit(h: RMHit) -> bool:
-    """
-    Decide whether a hit can be ignored when merging TE fragments in 'loose' mode.
-
-    Concept:
-    In loose mode, we allow merging two fragments of the same TE even if
-    something lies between them — BUT only if that something is biologically
-    uninformative or likely spurious.
-
-    Typical "ignorable" elements:
-    - simple repeats (e.g. (AT)n)
-    - low complexity regions
-    - satellites / microsatellites
-    - small RNA annotations (tRNA, rRNA, etc.)
-    - already-detected nested fragments
-
-    These elements often interrupt TE annotations but are not true boundaries.
-
-    Implementation details:
-    - We inspect both RepeatMasker class (repeat_class)
-      and repeat name (repeat_name), because annotation conventions vary.
-    - Matching is done in lowercase to avoid case issues.
-
-    Limitations:
-    - This is heuristic and string-based (like RepeatCraft).
-    - Could be refined later with a controlled vocabulary.
-    """
-
+def is_non_te_interruption(h: RMHit) -> bool:
+    """Identify reportable non-TE records that may interrupt a TE locus."""
     cls = h.repeat_class.lower()
     name = h.repeat_name.lower()
 
     return (
-        # Already marked nested → safe to ignore
-        h.nested
-
         # Simple repeats / low complexity
-        or "simple_repeat" in cls
+        "simple_repeat" in cls
         or "simple" in cls
         or "low_complexity" in cls
 
@@ -345,6 +319,18 @@ def is_ignorable_intervening_hit(h: RMHit) -> bool:
         or "simple_repeat" in name
         or "low_complexity" in name
     )
+
+
+def is_ignorable_intervening_hit(h: RMHit) -> bool:
+    """
+    Decide whether a hit can be crossed when merging TE fragments in loose mode.
+
+    Ignorable boundaries include reportable non-TE interruptions and hits that
+    have already been identified as nested.  "Ignorable" here never means that
+    the record should be removed from the reported annotation.
+    """
+    return h.nested or is_non_te_interruption(h)
+
 
 def compatible_for_loose_merge(
     current: TELocus,
@@ -466,6 +452,12 @@ def build_loci(
     # Holds hits encountered between mergeable fragments
     intervening_buffer: list[RMHit] = []
 
+    # In loose mode these records may be ignored as boundaries between TE
+    # fragments, but they are still real RepeatMasker annotations.  Preserve
+    # them as standalone loci so summary reporting does not lose simple
+    # repeats, low-complexity regions, satellites, microsatellites, or RNAs.
+    preserved_ignorable_hits: list[RMHit] = []
+
     for h in sorted_hits:
 
         # ----------------------------------------------------------
@@ -485,6 +477,7 @@ def build_loci(
             # In loose mode, skip leading ignorable hits
             if mode == "loose" and is_ignorable_intervening_hit(h) and not include_nested:
                 intervening_buffer.append(h)
+                preserved_ignorable_hits.append(h)
                 continue
 
             current = TELocus(
@@ -549,6 +542,8 @@ def build_loci(
             # Case 3: hit is ignorable → buffer it
             elif is_ignorable_intervening_hit(h) and h.query == current.query:
                 intervening_buffer.append(h)
+                if not h.nested or include_nested:
+                    preserved_ignorable_hits.append(h)
 
             # Case 4: real boundary → start new locus
             else:
@@ -570,6 +565,22 @@ def build_loci(
     # Final locus
     if current is not None:
         loci.append(current)
+
+    for h in preserved_ignorable_hits:
+        loci.append(
+            TELocus(
+                locus_id="",
+                query=h.query,
+                start=h.q_start,
+                end=h.q_end,
+                strand=h.strand,
+                repeat_name=h.repeat_name,
+                repeat_class=h.repeat_class,
+                hits=[h],
+            )
+        )
+
+    loci.sort(key=lambda locus: (locus.query, locus.start, locus.end, locus.repeat_name))
 
     # ----------------------------------------------------------
     # Assign stable IDs
@@ -952,6 +963,12 @@ def write_refinement_stats(
         **params,
         "raw_hits": len(hits),
         "nested_hits": sum(1 for h in hits if h.nested),
+        "preserved_ignorable_hits": sum(
+            1
+            for h in hits
+            if is_non_te_interruption(h)
+            and (params.get("include_nested", False) or not h.nested)
+        ),
         "refined_loci": len(loci),
         "single_fragment_loci": sum(1 for x in fragment_counts if x == 1),
         "merged_loci": sum(1 for x in fragment_counts if x > 1),
@@ -1321,6 +1338,7 @@ def refine_repeatmasker(
 
     # 8. Return metadata for manifest/reporting
     result = {
+        "refinement_algorithm_version": REFINEMENT_ALGORITHM_VERSION,
         **params,
         **stats,
         "refined_gff": str(refined_gff),
@@ -1340,6 +1358,10 @@ def refine_repeatmasker(
     logger.info("Refinement complete:")
     logger.info("  Raw hits: %s", stats.get("raw_hits"))
     logger.info("  Refined loci: %s", stats.get("refined_loci"))
+    logger.info(
+        "  Preserved simple-repeat/low-complexity/satellite/RNA hits: %s",
+        stats.get("preserved_ignorable_hits"),
+    )
     logger.info("  Merged loci: %s", stats.get("merged_loci"))
     logger.info("  Single-fragment loci: %s", stats.get("single_fragment_loci"))
     logger.info("  Mean fragments per locus: %s", stats.get("mean_fragments_per_locus"))
