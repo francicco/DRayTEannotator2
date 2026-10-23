@@ -597,6 +597,33 @@ def summary_files_exist(outdir: Path, species: str) -> bool:
     return all(f.exists() and f.stat().st_size > 0 for f in required)
 
 
+def summary_result_paths(refined_tsv: Path, outdir: Path, species: str) -> dict:
+    """Return the same summary-stage contract for new and cached results."""
+    return {
+        "stage": "summaryFiles",
+        "outdir": str(outdir),
+        "refined_tsv": str(refined_tsv),
+        "high_level_count": str(outdir / f"{species}.highLevelCount.txt"),
+        "family_level_count": str(outdir / f"{species}.familyLevelCount.txt"),
+        "divergence_summary": str(outdir / f"{species}_divergence_summary_table.tsv"),
+        "defragmented_repeats": str(outdir / f"{species}.defragmented_repeats.tsv"),
+    }
+
+
+def print_high_level_summary(
+    high: pd.DataFrame,
+    species: str,
+    outdir: Path,
+) -> None:
+    """Print a readable result table even when the stage is resumed."""
+    print("\n" + "=" * 60)
+    print(f"{species} TE summary (high-level)")
+    print(f"Results directory: {outdir}")
+    print("=" * 60)
+    print(high.to_markdown(index=False))
+    print()
+
+
 def run_summary(
     rmout: Path | None = None,
     genome_size: int = None,
@@ -638,11 +665,7 @@ def run_summary(
     save_split_landscape(div, species, outdir / f"{species}_split_class_landscape.pdf")
     save_superfamily_plot(div, species, outdir / f"{species}_superfamily_div_plot.pdf")
 
-    print("\n" + "=" * 60)
-    print(f"{species} TE summary (high-level)")
-    print("=" * 60)
-    print(high.to_markdown(index=False))
-    print()
+    print_high_level_summary(high, species, outdir)
 
 def run_summary_files(
     refined_tsv,
@@ -669,10 +692,11 @@ def run_summary_files(
 
     if summary_files_exist(outdir, species):
         logger.info("Summary files already exist; skipping")
-        return {
-            "stage": "summaryFiles",
-            "outdir": str(outdir),
-        }
+        high_level_count = outdir / f"{species}.highLevelCount.txt"
+        logger.info("Printing cached summary results from: %s", high_level_count)
+        high = pd.read_csv(high_level_count, sep="\t")
+        print_high_level_summary(high, species, outdir)
+        return summary_result_paths(refined_tsv, outdir, species)
 
     if not refined_tsv.exists() or refined_tsv.stat().st_size == 0:
         raise FileNotFoundError(f"Refined TSV not found or empty: {refined_tsv}")
@@ -700,15 +724,7 @@ def run_summary_files(
 
     logger.info("Summary files generated")
 
-    return {
-        "stage": "summaryFiles",
-        "outdir": str(outdir),
-        "refined_tsv": str(refined_tsv),
-        "high_level_count": str(outdir / f"{species}.highLevelCount.txt"),
-        "family_level_count": str(outdir / f"{species}.familyLevelCount.txt"),
-        "divergence_summary": str(outdir / f"{species}_divergence_summary_table.tsv"),
-        "defragmented_repeats": str(outdir / f"{species}.defragmented_repeats.tsv"),
-    }
+    return summary_result_paths(refined_tsv, outdir, species)
 
 def save_summary_barplot(high: pd.DataFrame, species: str, outpath: Path) -> None:
     dat = high[

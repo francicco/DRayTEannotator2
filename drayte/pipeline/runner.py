@@ -46,6 +46,44 @@ def write_manifest(outdir: Path, name: str, data: dict) -> None:
         json.dump(data, handle, indent=2)
 
 
+def log_final_results(
+    logger,
+    classification_result: dict,
+    final_annotation_result: dict,
+    refinement_result: dict,
+    summary_no_filter_result: dict,
+    summary_filtered_result: dict,
+    family_inspection_result: dict,
+) -> None:
+    """Log the principal deliverables after both fresh and resumed runs."""
+    logger.info("=" * 80)
+    logger.info("FINAL RESULTS")
+    logger.info("Classified TE library: %s", classification_result["classified_library"])
+    logger.info("RepeatMasker annotation: %s", final_annotation_result["repeatmasker_out"])
+    logger.info("Refined annotation: %s", refinement_result["refined_tsv"])
+    logger.info("Filtered annotation: %s", refinement_result["filtered_tsv"])
+    logger.info("Refinement statistics: %s", refinement_result["stats_tsv"])
+    logger.info(
+        "Unfiltered high-level TE summary: %s",
+        summary_no_filter_result["high_level_count"],
+    )
+    logger.info(
+        "Filtered high-level TE summary: %s",
+        summary_filtered_result["high_level_count"],
+    )
+
+    if family_inspection_result.get("enabled", True):
+        logger.info(
+            "Family inspection: %s (%s families)",
+            family_inspection_result.get("manifest", family_inspection_result["outdir"]),
+            family_inspection_result.get("families", "count unavailable"),
+        )
+    else:
+        logger.info("Family inspection: disabled")
+
+    logger.info("=" * 80)
+
+
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
@@ -205,6 +243,15 @@ def main() -> None:
         family_inspection_result,
     )
 
+    log_final_results(
+        logger=logger,
+        classification_result=classification_result,
+        final_annotation_result=final_annotation_result,
+        refinement_result=refinement_result,
+        summary_no_filter_result=summary_no_filter_result,
+        summary_filtered_result=summary_filtered_result,
+        family_inspection_result=family_inspection_result,
+    )
     logger.info("Pipeline completed successfully")
 
 if __name__ == "__main__":
