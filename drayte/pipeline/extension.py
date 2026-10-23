@@ -234,6 +234,31 @@ def validate_extension_outputs(
     return True, "outputs are complete"
 
 
+def prepare_complete_extension_checkpoint(
+    result: dict,
+    extensionwork: Path,
+    final_consensuses: Path,
+    cached_query: Path,
+) -> tuple[bool, str]:
+    if not cached_query.exists() or cached_query.stat().st_size == 0:
+        return False, f"missing or empty cached extension query: {cached_query}"
+
+    valid, reason = validate_extension_outputs(
+        result,
+        extensionwork=extensionwork,
+        final_consensuses=final_consensuses,
+    )
+    if not valid:
+        return False, reason
+
+    result["resume_validation"] = {
+        "mode": "validated_extension_checkpoint",
+        "cached_query_fasta": str(cached_query),
+        "cached_query_fasta_sha256": sha256_file(cached_query),
+    }
+    return True, "outputs and cached query are complete"
+
+
 #def run(config, discovery_result: dict, structure_result: Optional[dict], logger) -> dict:
 def run(config, discovery_result: dict, logger) -> dict:
     outdir = stage_dir(config.outdir_path, "extension")
@@ -303,6 +328,37 @@ def run(config, discovery_result: dict, logger) -> dict:
             logger.warning("Could not read extension manifest; resuming stage: %s", exc)
         else:
             cached_signature = cached_result.get("input_signature")
+            blast_query_copy = blastfiles / final_query_fasta.name
+
+            complete, reason = prepare_complete_extension_checkpoint(
+                cached_result,
+                extensionwork=extensionwork,
+                final_consensuses=final_consensuses,
+                cached_query=blast_query_copy,
+            )
+            if complete:
+                if cached_signature is None:
+                    signature_status = "legacy_manifest"
+                    logger.warning(
+                        "Reusing complete legacy extension checkpoint associated "
+                        "with this outdir"
+                    )
+                elif extension_signatures_compatible(cached_signature, input_signature):
+                    signature_status = "matching_signature"
+                else:
+                    signature_status = "different_current_inputs"
+                    logger.warning(
+                        "Current discovery inputs differ from the complete extension "
+                        "checkpoint; reusing the checkpoint associated with this outdir"
+                    )
+                cached_result["resume_validation"][
+                    "input_signature_status"
+                ] = signature_status
+                logger.info("Validated existing extension outputs; skipping")
+                return cached_result
+
+            logger.warning("Extension cache is incomplete (%s); resuming", reason)
+
             if cached_signature is not None and not extension_signatures_compatible(
                 cached_signature,
                 input_signature,
@@ -314,7 +370,6 @@ def run(config, discovery_result: dict, logger) -> dict:
                     "restarting."
                 )
 
-            blast_query_copy = blastfiles / final_query_fasta.name
             if cached_signature is None:
                 if (
                     not blast_query_copy.exists()
@@ -338,8 +393,6 @@ def run(config, discovery_result: dict, logger) -> dict:
                 cached_result["input_signature"] = input_signature
                 logger.info("Validated existing extension outputs; skipping")
                 return cached_result
-
-            logger.warning("Extension cache is incomplete (%s); resuming", reason)
 
     if not filtered_fasta.exists() or filtered_fasta.stat().st_size == 0:
         n_kept = filter_fasta_by_length(candidate_library, filtered_fasta, min_length=100)

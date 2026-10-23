@@ -280,6 +280,14 @@ Run with:
 
 `drayte --config config.yaml`
 
+Rerunning the same command against the same output directory automatically
+resumes the analysis. A stage is skipped only after its manifest and required
+outputs have been validated. A complete extension checkpoint is reused even
+when a legacy manifest predates input signatures.
+
+Use a new output directory when intentionally starting an analysis with different
+inputs or settings.
+
 -----
 
 ## Post-processing
