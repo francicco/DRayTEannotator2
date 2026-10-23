@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import sys
 
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from typing import List
@@ -13,6 +14,9 @@ from typing import List
 from .ids import clean_family_id
 from drayte.utils.fasta_split import split_fasta_balanced_by_length
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+DFAM_CHUNK_CACHE_SCHEMA_VERSION = 1
 
 @dataclass
 class DfamHit:
@@ -28,6 +32,101 @@ class DfamHit:
     dfam_superfamily: str = "Unknown"
     dfam_ct: str = ""
 
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def nhmmer_tblout_complete(tblout: str | Path) -> bool:
+    """Return True only for a tblout that nhmmer finished writing."""
+    tblout = Path(tblout)
+    if not tblout.exists() or tblout.stat().st_size == 0:
+        return False
+
+    last_nonempty = ""
+    with open(tblout, errors="replace") as handle:
+        for line in handle:
+            if line.strip():
+                last_nonempty = line.strip()
+
+    return last_nonempty == "# [ok]"
+
+
+def _tblout_targets_belong_to_chunk(
+    tblout: Path,
+    chunk_fasta: Path,
+) -> bool:
+    sequence_lengths: dict[str, int] = {}
+    current_id: str | None = None
+    with open(chunk_fasta) as handle:
+        for line in handle:
+            if line.startswith(">"):
+                current_id = line[1:].strip().split()[0]
+                sequence_lengths[current_id] = 0
+            elif current_id is not None:
+                sequence_lengths[current_id] += len(line.strip())
+
+    try:
+        with open(tblout) as handle:
+            for line in handle:
+                if line.startswith("#") or not line.strip():
+                    continue
+                fields = line.split()
+                if len(fields) < 11:
+                    return False
+                target = fields[0]
+                try:
+                    target_length = int(fields[10])
+                except ValueError:
+                    return False
+                if sequence_lengths.get(target) != target_length:
+                    return False
+    except OSError:
+        return False
+
+    return True
+
+
+def _chunk_signature(
+    chunk_fasta: Path,
+    dfam_db: Path,
+    nhmmer_bin: str,
+) -> dict:
+    db_stat = dfam_db.stat()
+    return {
+        "schema_version": DFAM_CHUNK_CACHE_SCHEMA_VERSION,
+        "chunk_sha256": _sha256_file(chunk_fasta),
+        "dfam_db": {
+            "path": str(dfam_db.resolve()),
+            "size": db_stat.st_size,
+            "mtime_ns": db_stat.st_mtime_ns,
+        },
+        "nhmmer_bin": str(nhmmer_bin),
+    }
+
+
+def _chunk_manifest_path(tblout: Path) -> Path:
+    return Path(f"{tblout}.manifest.json")
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        with open(path) as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    temporary = Path(f"{path}.partial")
+    temporary.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    os.replace(temporary, path)
+
 def run_nhmmer(
     dfam_db: str | Path,
     consensus_fasta: str | Path,
@@ -38,22 +137,36 @@ def run_nhmmer(
     tblout = Path(tblout)
     tblout.parent.mkdir(parents=True, exist_ok=True)
 
-    pid = os.getpid()
-    start = datetime.now()
+    log_path = tblout.with_suffix(".log")
+    partial_tblout = Path(f"{tblout}.partial")
+    partial_log = Path(f"{log_path}.partial")
 
     cmd = [
         nhmmer_bin,
         "--cpu", str(cpu),
-        "--tblout", str(tblout),
+        "--tblout", str(partial_tblout),
         str(dfam_db),
         str(consensus_fasta),
     ]
 
-    with open(tblout.with_suffix(".log"), "w") as log:
-        subprocess.run(cmd, check=True, stdout=log, stderr=log)
+    try:
+        with open(partial_log, "w") as log:
+            subprocess.run(cmd, check=True, stdout=log, stderr=log)
+    except Exception:
+        if partial_log.exists():
+            os.replace(partial_log, log_path)
+        raise
 
-    end = datetime.now()
+    if not nhmmer_tblout_complete(partial_tblout):
+        if partial_log.exists():
+            os.replace(partial_log, log_path)
+        raise RuntimeError(
+            "nhmmer exited without writing a complete tblout: "
+            f"{partial_tblout}"
+        )
 
+    os.replace(partial_tblout, tblout)
+    os.replace(partial_log, log_path)
     return tblout
 
 def parse_nhmmer_tblout(
@@ -139,13 +252,15 @@ def merge_tblout_files(
 ) -> Path:
     merged_tblout = Path(merged_tblout)
     merged_tblout.parent.mkdir(parents=True, exist_ok=True)
+    partial = Path(f"{merged_tblout}.partial")
 
-    with open(merged_tblout, "w") as out:
+    with open(partial, "w") as out:
         for path in tblouts:
             with open(path) as fh:
                 for line in fh:
                     out.write(line)
 
+    os.replace(partial, merged_tblout)
     return merged_tblout
 
 def run_nhmmer_parallel_chunks(
@@ -186,6 +301,12 @@ def run_nhmmer_parallel_chunks(
     if chunks < 1:
         chunks = 1
 
+    old_chunk_hashes = {
+        path.name: _sha256_file(path)
+        for path in chunks_dir.glob("chunk_*.fa")
+        if path.is_file()
+    }
+
     fasta_chunks = split_fasta_balanced_by_length(
         input_fasta=consensus_fasta,
         outdir=chunks_dir,
@@ -203,27 +324,90 @@ def run_nhmmer_parallel_chunks(
 
     max_parallel = max(1, min(max_parallel, len(fasta_chunks)))
 
+    current_chunk_hashes = {
+        path.name: _sha256_file(path)
+        for path in fasta_chunks
+    }
+    legacy_layout_matches = (
+        bool(old_chunk_hashes)
+        and set(old_chunk_hashes) == set(current_chunk_hashes)
+        and all(
+            old_chunk_hashes[name] == current_hash
+            for name, current_hash in current_chunk_hashes.items()
+        )
+    )
+
+    signatures = {
+        path: _chunk_signature(path, dfam_db, nhmmer_bin)
+        for path in fasta_chunks
+    }
+    reusable: list[Path] = []
+    pending: list[Path] = []
+
+    for chunk_fasta in fasta_chunks:
+        tblout = tblout_dir / f"{chunk_fasta.stem}.tblout"
+        manifest = _read_json(_chunk_manifest_path(tblout))
+
+        if (
+            nhmmer_tblout_complete(tblout)
+            and manifest == signatures[chunk_fasta]
+        ):
+            reusable.append(tblout)
+            continue
+
+        old_chunk_hash = old_chunk_hashes.get(chunk_fasta.name)
+        legacy_cache_is_compatible = (
+            manifest is None
+            and legacy_layout_matches
+            and old_chunk_hash is not None
+            and nhmmer_tblout_complete(tblout)
+            and _tblout_targets_belong_to_chunk(tblout, chunk_fasta)
+            and tblout.stat().st_mtime_ns >= dfam_db.stat().st_mtime_ns
+        )
+        if legacy_cache_is_compatible:
+            _write_json_atomic(
+                _chunk_manifest_path(tblout),
+                signatures[chunk_fasta],
+            )
+            reusable.append(tblout)
+            continue
+
+        pending.append(chunk_fasta)
+
+    print(
+        f"[DRayTE][Dfam] resume check: "
+        f"{len(reusable)} completed chunks reused, "
+        f"{len(pending)} chunks to run",
+        file=sys.stderr,
+        flush=True,
+    )
+
     def _run_one(chunk_fasta: Path) -> Path:
         tblout = tblout_dir / f"{chunk_fasta.stem}.tblout"
 
-        return run_nhmmer(
+        result = run_nhmmer(
             dfam_db=dfam_db,
             consensus_fasta=chunk_fasta,
             tblout=tblout,
             nhmmer_bin=nhmmer_bin,
             cpu=cpu_per_job,
         )
+        _write_json_atomic(
+            _chunk_manifest_path(tblout),
+            signatures[chunk_fasta],
+        )
+        return result
 
-    tblouts: list[Path] = []
+    tblouts: list[Path] = list(reusable)
 
     with ThreadPoolExecutor(max_workers=max_parallel) as executor:
         futures = {
             executor.submit(_run_one, chunk): chunk
-            for chunk in fasta_chunks
+            for chunk in pending
         }
 
-        total = len(futures)
-        completed = 0
+        total = len(fasta_chunks)
+        completed = len(reusable)
 
         for future in as_completed(futures):
             chunk = futures[future]
@@ -241,11 +425,4 @@ def run_nhmmer_parallel_chunks(
             )
 
     merged = outdir / "dfam.merged.tblout"
-
-    with open(merged, "w") as out:
-        for tblout in sorted(tblouts):
-            with open(tblout) as fh:
-                for line in fh:
-                    out.write(line)
-
-    return merged
+    return merge_tblout_files(sorted(tblouts), merged)
