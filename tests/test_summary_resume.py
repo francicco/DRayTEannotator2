@@ -68,15 +68,49 @@ def test_final_results_are_logged_after_resumed_stages(caplog):
     with caplog.at_level(logging.INFO, logger="drayte-test"):
         log_final_results(
             logger=logger,
-            classification_result={"classified_library": "/run/final-library.fa"},
-            final_annotation_result={"repeatmasker_out": "/run/final.fa.out"},
+            classification_result={
+                "outdir": "/run/classification",
+                "classified_library": "/run/classification/final-library.fa",
+                "classifications_tsv": "/run/classification/classes.tsv",
+                "evidence_tsv": "/run/classification/evidence.tsv",
+                "nonauto_candidates_tsv": "/run/classification/nonauto.tsv",
+                "n_families": 300,
+                "n_classified": 237,
+                "n_unknown": 63,
+            },
+            final_annotation_result={
+                "outdir": "/run/final_annotation",
+                "repeatmasker_out": "/run/final_annotation/final.fa.out",
+                "repeatmasker_gff": "/run/final_annotation/final.fa.gff",
+                "repeatmasker_tbl": "/run/final_annotation/final.fa.tbl",
+                "masked_genome": "/run/final_annotation/final.fa.masked",
+                "align": "/run/final_annotation/final.fa.align",
+            },
             refinement_result={
+                "outdir": "/run/refinement",
                 "refined_tsv": "/run/refined.tsv",
+                "refined_gff": "/run/refined.gff3",
+                "refined_bed": "/run/refined.bed",
                 "filtered_tsv": "/run/filtered.tsv",
+                "filtered_gff": "/run/filtered.gff3",
+                "filtered_bed": "/run/filtered.bed",
+                "nested_gff": "/run/nested.gff3",
                 "stats_tsv": "/run/stats.tsv",
             },
-            summary_no_filter_result={"high_level_count": "/run/unfiltered.txt"},
-            summary_filtered_result={"high_level_count": "/run/filtered.txt"},
+            summary_no_filter_result={
+                "outdir": "/run/unfiltered_summary",
+                "high_level_count": "/run/unfiltered_summary/high.txt",
+                "family_level_count": "/run/unfiltered_summary/family.txt",
+                "divergence_summary": "/run/unfiltered_summary/divergence.tsv",
+                "defragmented_repeats": "/run/unfiltered_summary/repeats.tsv",
+            },
+            summary_filtered_result={
+                "outdir": "/run/filtered_summary",
+                "high_level_count": "/run/filtered_summary/high.txt",
+                "family_level_count": "/run/filtered_summary/family.txt",
+                "divergence_summary": "/run/filtered_summary/divergence.tsv",
+                "defragmented_repeats": "/run/filtered_summary/repeats.tsv",
+            },
             family_inspection_result={
                 "manifest": "/run/families.tsv",
                 "outdir": "/run/families",
@@ -85,6 +119,16 @@ def test_final_results_are_logged_after_resumed_stages(caplog):
         )
 
     assert "FINAL RESULTS" in caplog.text
-    assert "Classified TE library: /run/final-library.fa" in caplog.text
-    assert "Filtered high-level TE summary: /run/filtered.txt" in caplog.text
-    assert "Family inspection: /run/families.tsv (237 families)" in caplog.text
+    assert "1. CLASSIFIED TE LIBRARY AND EVIDENCE" in caplog.text
+    assert "Final classified library: /run/classification/final-library.fa" in caplog.text
+    assert "2. FINAL REPEATMASKER GENOME ANNOTATION" in caplog.text
+    assert "RepeatMasker GFF: /run/final_annotation/final.fa.gff" in caplog.text
+    assert "3. REFINED AND FILTERED ANNOTATION" in caplog.text
+    assert "Filtered non-overlapping loci (TSV): /run/filtered.tsv" in caplog.text
+    assert "4. TE SUMMARY - UNFILTERED REFINED LOCI" in caplog.text
+    assert "Plots and PDF summaries: /run/unfiltered_summary" in caplog.text
+    assert "5. TE SUMMARY - FILTERED NON-OVERLAPPING LOCI" in caplog.text
+    assert "Family-level count table: /run/filtered_summary/family.txt" in caplog.text
+    assert "6. PER-FAMILY INSPECTION" in caplog.text
+    assert "Family manifest: /run/families.tsv" in caplog.text
+    assert "Families represented: 237" in caplog.text

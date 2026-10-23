@@ -55,31 +55,107 @@ def log_final_results(
     summary_filtered_result: dict,
     family_inspection_result: dict,
 ) -> None:
-    """Log the principal deliverables after both fresh and resumed runs."""
+    """Log a result map after both fresh and resumed runs."""
     logger.info("=" * 80)
     logger.info("FINAL RESULTS")
-    logger.info("Classified TE library: %s", classification_result["classified_library"])
-    logger.info("RepeatMasker annotation: %s", final_annotation_result["repeatmasker_out"])
-    logger.info("Refined annotation: %s", refinement_result["refined_tsv"])
-    logger.info("Filtered annotation: %s", refinement_result["filtered_tsv"])
-    logger.info("Refinement statistics: %s", refinement_result["stats_tsv"])
-    logger.info(
-        "Unfiltered high-level TE summary: %s",
-        summary_no_filter_result["high_level_count"],
+
+    def log_section(title: str, result: dict, fields: list[tuple[str, str]]) -> None:
+        logger.info("")
+        logger.info("%s", title)
+        if result.get("outdir"):
+            logger.info("  Output directory: %s", result["outdir"])
+        for label, key in fields:
+            value = result.get(key)
+            if value:
+                logger.info("  %s: %s", label, value)
+
+    log_section(
+        "1. CLASSIFIED TE LIBRARY AND EVIDENCE",
+        classification_result,
+        [
+            ("Final classified library", "classified_library"),
+            ("Family classifications", "classifications_tsv"),
+            ("Classification evidence", "evidence_tsv"),
+            ("Non-autonomous candidates", "nonauto_candidates_tsv"),
+        ],
     )
     logger.info(
-        "Filtered high-level TE summary: %s",
-        summary_filtered_result["high_level_count"],
+        "  Families: %s total; %s classified; %s unknown",
+        classification_result.get("n_families", "unavailable"),
+        classification_result.get("n_classified", "unavailable"),
+        classification_result.get("n_unknown", "unavailable"),
     )
 
+    log_section(
+        "2. FINAL REPEATMASKER GENOME ANNOTATION",
+        final_annotation_result,
+        [
+            ("RepeatMasker annotation", "repeatmasker_out"),
+            ("RepeatMasker GFF", "repeatmasker_gff"),
+            ("RepeatMasker summary table", "repeatmasker_tbl"),
+            ("Masked genome", "masked_genome"),
+            ("RepeatMasker alignments", "align"),
+        ],
+    )
+
+    log_section(
+        "3. REFINED AND FILTERED ANNOTATION",
+        refinement_result,
+        [
+            ("All refined loci (TSV)", "refined_tsv"),
+            ("All refined loci (GFF3)", "refined_gff"),
+            ("All refined loci (BED)", "refined_bed"),
+            ("Filtered non-overlapping loci (TSV)", "filtered_tsv"),
+            ("Filtered non-overlapping loci (GFF3)", "filtered_gff"),
+            ("Filtered non-overlapping loci (BED)", "filtered_bed"),
+            ("Nested loci (GFF3)", "nested_gff"),
+            ("Refinement statistics", "stats_tsv"),
+        ],
+    )
+
+    log_section(
+        "4. TE SUMMARY - UNFILTERED REFINED LOCI",
+        summary_no_filter_result,
+        [
+            ("High-level count table", "high_level_count"),
+            ("Family-level count table", "family_level_count"),
+            ("Divergence summary", "divergence_summary"),
+            ("Defragmented repeat table", "defragmented_repeats"),
+        ],
+    )
+    logger.info("  Plots and PDF summaries: %s", summary_no_filter_result["outdir"])
+
+    log_section(
+        "5. TE SUMMARY - FILTERED NON-OVERLAPPING LOCI",
+        summary_filtered_result,
+        [
+            ("High-level count table", "high_level_count"),
+            ("Family-level count table", "family_level_count"),
+            ("Divergence summary", "divergence_summary"),
+            ("Defragmented repeat table", "defragmented_repeats"),
+        ],
+    )
+    logger.info("  Plots and PDF summaries: %s", summary_filtered_result["outdir"])
+
     if family_inspection_result.get("enabled", True):
+        logger.info("")
+        logger.info("6. PER-FAMILY INSPECTION")
+        logger.info("  Output directory: %s", family_inspection_result["outdir"])
         logger.info(
-            "Family inspection: %s (%s families)",
-            family_inspection_result.get("manifest", family_inspection_result["outdir"]),
-            family_inspection_result.get("families", "count unavailable"),
+            "  Family manifest: %s",
+            family_inspection_result.get("manifest", "unavailable"),
+        )
+        logger.info(
+            "  Families represented: %s",
+            family_inspection_result.get("families", "unavailable"),
+        )
+        logger.info(
+            "  Per-family evidence, plots, and archives: %s",
+            family_inspection_result["outdir"],
         )
     else:
-        logger.info("Family inspection: disabled")
+        logger.info("")
+        logger.info("6. PER-FAMILY INSPECTION: disabled")
 
     logger.info("=" * 80)
 
@@ -193,6 +269,8 @@ def main() -> None:
             overlap_score=config.extra.get("refinement_overlap_score", "longest_lowdiv"),
             logger=logger,
         )
+
+    refinement_result.setdefault("outdir", str(refinement_outdir))
 
     write_manifest(
         refinement_outdir,
