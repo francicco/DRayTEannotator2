@@ -243,3 +243,114 @@ def test_parallel_dfam_reruns_only_chunk_whose_sequence_changed(
 
     assert len(calls) == 3
     assert ">family_a\nTTTT\n" in calls[-1]
+
+
+def test_parallel_dfam_resumes_cached_chunk_count_instead_of_yaml(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+):
+    consensus = tmp_path / "consensus.fa"
+    dfam_db = tmp_path / "dfam.hmm"
+    outdir = tmp_path / "dfam"
+    chunks_dir = outdir / "chunks"
+    tblout_dir = outdir / "tblouts"
+
+    consensus.write_text(
+        ">family_a\nAAAA\n"
+        ">family_b\nCCCC\n"
+        ">family_c\nGGGG\n"
+        ">family_d\nTTTT\n"
+    )
+    dfam_db.write_text("HMM database\n")
+    cached_chunks = dfam_module.split_fasta_balanced_by_length(
+        input_fasta=consensus,
+        outdir=chunks_dir,
+        n_chunks=4,
+        prefix="chunk",
+    )
+    tblout_dir.mkdir(parents=True)
+    for chunk in cached_chunks:
+        (tblout_dir / f"{chunk.stem}.tblout").write_text(
+            "# completed cached result\n# [ok]\n"
+        )
+
+    # Simulate an old restart that already rewrote the first chunk files using
+    # the newer YAML value while leaving the original four-chunk outputs.
+    dfam_module.split_fasta_balanced_by_length(
+        input_fasta=consensus,
+        outdir=chunks_dir,
+        n_chunks=2,
+        prefix="chunk",
+    )
+
+    calls = []
+
+    def fake_run_nhmmer(**kwargs):
+        calls.append(Path(kwargs["consensus_fasta"]).name)
+        result = Path(kwargs["tblout"])
+        result.write_text("# newly completed result\n# [ok]\n")
+        return result
+
+    monkeypatch.setattr(dfam_module, "run_nhmmer", fake_run_nhmmer)
+
+    merged = run_nhmmer_parallel_chunks(
+        dfam_db=dfam_db,
+        consensus_fasta=consensus,
+        outdir=outdir,
+        chunks=2,
+        max_parallel=1,
+    )
+
+    assert calls == []
+    assert merged.read_text().count("# [ok]") == 4
+    assert "cached checkpoint uses 4 chunks" in capsys.readouterr().err
+    scan_manifest = dfam_module._read_json(
+        outdir / "dfam.scan.manifest.json"
+    )
+    assert scan_manifest["chunks"] == 4
+
+
+def test_parallel_dfam_scan_manifest_preserves_chunk_count(
+    tmp_path: Path,
+    monkeypatch,
+):
+    consensus = tmp_path / "consensus.fa"
+    dfam_db = tmp_path / "dfam.hmm"
+    outdir = tmp_path / "dfam"
+    consensus.write_text(
+        ">family_a\nAAAA\n"
+        ">family_b\nCCCC\n"
+        ">family_c\nGGGG\n"
+        ">family_d\nTTTT\n"
+    )
+    dfam_db.write_text("HMM database\n")
+
+    calls = []
+
+    def fake_run_nhmmer(**kwargs):
+        calls.append(Path(kwargs["consensus_fasta"]).name)
+        result = Path(kwargs["tblout"])
+        result.write_text("# completed result\n# [ok]\n")
+        return result
+
+    monkeypatch.setattr(dfam_module, "run_nhmmer", fake_run_nhmmer)
+
+    run_nhmmer_parallel_chunks(
+        dfam_db=dfam_db,
+        consensus_fasta=consensus,
+        outdir=outdir,
+        chunks=4,
+        max_parallel=1,
+    )
+    assert len(calls) == 4
+
+    run_nhmmer_parallel_chunks(
+        dfam_db=dfam_db,
+        consensus_fasta=consensus,
+        outdir=outdir,
+        chunks=2,
+        max_parallel=1,
+    )
+
+    assert len(calls) == 4

@@ -8,6 +8,7 @@ from .pipeline import run_domain_annotation
 from .io import load_families_tsv, write_classification_tsv, write_evidence_tsv
 from .structure import load_structure_evidence_tsv
 from .dfam import (
+    cached_nhmmer_chunk_count,
     parse_nhmmer_tblout,
     run_nhmmer,
     run_nhmmer_parallel_chunks,
@@ -334,7 +335,19 @@ def main():
                 f"Running nhmmer against Dfam database: {args.dfam_db}"
             )
 
-            if args.chunks and args.chunks > 1:
+            cached_dfam_chunks = cached_nhmmer_chunk_count(
+                args.dfam_outdir
+            )
+            if cached_dfam_chunks is not None:
+                log_step(
+                    "Found existing Dfam checkpoint containing "
+                    f"{cached_dfam_chunks} chunks"
+                )
+
+            if (
+                (args.chunks and args.chunks > 1)
+                or cached_dfam_chunks is not None
+            ):
                 generated_tblout = run_nhmmer_parallel_chunks(
                     dfam_db=args.dfam_db,
                     consensus_fasta=args.fasta,

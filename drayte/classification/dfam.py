@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -17,6 +18,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 DFAM_CHUNK_CACHE_SCHEMA_VERSION = 1
+DFAM_SCAN_CACHE_SCHEMA_VERSION = 1
+CHUNK_FILE_PATTERN = re.compile(r"^chunk_(\d+)\.(?:fa|tblout)$")
 
 @dataclass
 class DfamHit:
@@ -96,17 +99,63 @@ def _chunk_signature(
     dfam_db: Path,
     nhmmer_bin: str,
 ) -> dict:
-    db_stat = dfam_db.stat()
     return {
         "schema_version": DFAM_CHUNK_CACHE_SCHEMA_VERSION,
         "chunk_sha256": _sha256_file(chunk_fasta),
-        "dfam_db": {
-            "path": str(dfam_db.resolve()),
-            "size": db_stat.st_size,
-            "mtime_ns": db_stat.st_mtime_ns,
-        },
+        "dfam_db": _database_signature(dfam_db),
         "nhmmer_bin": str(nhmmer_bin),
     }
+
+
+def _database_signature(dfam_db: Path) -> dict:
+    db_stat = dfam_db.stat()
+    return {
+        "path": str(dfam_db.resolve()),
+        "size": db_stat.st_size,
+        "mtime_ns": db_stat.st_mtime_ns,
+    }
+
+
+def _scan_input_signature(
+    consensus_fasta: Path,
+    dfam_db: Path,
+    nhmmer_bin: str,
+) -> dict:
+    return {
+        "consensus_sha256": _sha256_file(consensus_fasta),
+        "dfam_db": _database_signature(dfam_db),
+        "nhmmer_bin": str(nhmmer_bin),
+    }
+
+
+def _infer_cached_chunk_count(
+    chunks_dir: Path,
+    tblout_dir: Path,
+) -> int | None:
+    tblout_indices = []
+    for path in tblout_dir.glob("chunk_*.tblout"):
+        match = CHUNK_FILE_PATTERN.match(path.name)
+        if match:
+            tblout_indices.append(int(match.group(1)))
+
+    if not tblout_indices:
+        return None
+
+    checkpoint_indices = list(tblout_indices)
+    for path in chunks_dir.glob("chunk_*.fa"):
+        match = CHUNK_FILE_PATTERN.match(path.name)
+        if match:
+            checkpoint_indices.append(int(match.group(1)))
+
+    return max(checkpoint_indices)
+
+
+def cached_nhmmer_chunk_count(outdir: str | Path) -> int | None:
+    outdir = Path(outdir)
+    return _infer_cached_chunk_count(
+        outdir / "chunks",
+        outdir / "tblouts",
+    )
 
 
 def _chunk_manifest_path(tblout: Path) -> Path:
@@ -298,8 +347,48 @@ def run_nhmmer_parallel_chunks(
     chunks_dir.mkdir(parents=True, exist_ok=True)
     tblout_dir.mkdir(parents=True, exist_ok=True)
 
-    if chunks < 1:
-        chunks = 1
+    requested_chunks = max(1, chunks)
+    scan_manifest_path = outdir / "dfam.scan.manifest.json"
+    scan_input_signature = _scan_input_signature(
+        consensus_fasta,
+        dfam_db,
+        nhmmer_bin,
+    )
+    cached_scan_manifest = _read_json(scan_manifest_path)
+    scan_manifest_compatible = (
+        cached_scan_manifest is not None
+        and cached_scan_manifest.get("schema_version")
+        == DFAM_SCAN_CACHE_SCHEMA_VERSION
+        and cached_scan_manifest.get("input_signature")
+        == scan_input_signature
+        and isinstance(cached_scan_manifest.get("chunks"), int)
+        and cached_scan_manifest["chunks"] >= 1
+    )
+    inferred_cached_chunks = _infer_cached_chunk_count(
+        chunks_dir,
+        tblout_dir,
+    )
+    legacy_checkpoint_detected = (
+        not scan_manifest_compatible
+        and cached_scan_manifest is None
+        and inferred_cached_chunks is not None
+    )
+
+    if scan_manifest_compatible:
+        effective_chunks = cached_scan_manifest["chunks"]
+    elif legacy_checkpoint_detected:
+        effective_chunks = inferred_cached_chunks
+    else:
+        effective_chunks = requested_chunks
+
+    if effective_chunks != requested_chunks:
+        print(
+            f"[DRayTE][Dfam] cached checkpoint uses "
+            f"{effective_chunks} chunks; ignoring requested YAML "
+            f"chunks={requested_chunks} while resuming",
+            file=sys.stderr,
+            flush=True,
+        )
 
     old_chunk_hashes = {
         path.name: _sha256_file(path)
@@ -310,7 +399,7 @@ def run_nhmmer_parallel_chunks(
     fasta_chunks = split_fasta_balanced_by_length(
         input_fasta=consensus_fasta,
         outdir=chunks_dir,
-        n_chunks=chunks,
+        n_chunks=effective_chunks,
         prefix="chunk",
     )
 
@@ -319,22 +408,23 @@ def run_nhmmer_parallel_chunks(
         merged.write_text("")
         return merged
 
+    _write_json_atomic(
+        scan_manifest_path,
+        {
+            "schema_version": DFAM_SCAN_CACHE_SCHEMA_VERSION,
+            "chunks": len(fasta_chunks),
+            "input_signature": scan_input_signature,
+        },
+    )
+
     if max_parallel is None:
         max_parallel = len(fasta_chunks)
 
     max_parallel = max(1, min(max_parallel, len(fasta_chunks)))
 
-    current_chunk_hashes = {
-        path.name: _sha256_file(path)
-        for path in fasta_chunks
-    }
-    legacy_layout_matches = (
-        bool(old_chunk_hashes)
-        and set(old_chunk_hashes) == set(current_chunk_hashes)
-        and all(
-            old_chunk_hashes[name] == current_hash
-            for name, current_hash in current_chunk_hashes.items()
-        )
+    allow_manifestless_checkpoint = (
+        scan_manifest_compatible
+        or legacy_checkpoint_detected
     )
 
     signatures = {
@@ -358,7 +448,7 @@ def run_nhmmer_parallel_chunks(
         old_chunk_hash = old_chunk_hashes.get(chunk_fasta.name)
         legacy_cache_is_compatible = (
             manifest is None
-            and legacy_layout_matches
+            and allow_manifestless_checkpoint
             and old_chunk_hash is not None
             and nhmmer_tblout_complete(tblout)
             and _tblout_targets_belong_to_chunk(tblout, chunk_fasta)

@@ -32,6 +32,7 @@ from drayte.classification.sine_detect import detect_sines_from_fasta
 from drayte.classification.hmmer import parse_domtblout
 from drayte.classification.pipeline import run_domain_annotation
 from drayte.classification.dfam import (
+    cached_nhmmer_chunk_count,
     parse_nhmmer_tblout,
     run_nhmmer,
     run_nhmmer_parallel_chunks,
@@ -485,7 +486,14 @@ def run(
     elif dfam_db:
         logger.info("Running nhmmer against Dfam database: %s", dfam_db)
 
-        if chunks and chunks > 1:
+        cached_dfam_chunks = cached_nhmmer_chunk_count(dfam_outdir)
+        if cached_dfam_chunks is not None:
+            logger.info(
+                "Found existing Dfam checkpoint containing %d chunks",
+                cached_dfam_chunks,
+            )
+
+        if (chunks and chunks > 1) or cached_dfam_chunks is not None:
             generated_tblout = run_nhmmer_parallel_chunks(
                 dfam_db=dfam_db,
                 consensus_fasta=library,
