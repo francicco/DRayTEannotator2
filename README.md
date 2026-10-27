@@ -614,6 +614,29 @@ This generates the HMMER index files required for `nhmmer`.
 
 -----
 
+## Comparing EarlGrey and DRayAnn annotations
+
+`compare_earlgrey_drayann.py` discovers matching species directories, reads the
+two pipelines' `highLevelCount.txt` files, and writes paired tables and plots.
+For example:
+
+```bash
+python compare_earlgrey_drayann.py \
+  --root /user/work/tk19812/HoneyPotProject/TEannotation \
+  --outdir /user/work/tk19812/HoneyPotProject/TEannotation/EarlGrey_vs_DRayAnn
+```
+
+The default uses the DRayAnn filtered annotation. Use
+`--drayann-summary unfiltered` or `--drayann-summary both` to inspect the other
+annotation layer. Existing nested rows are preserved in the raw output and
+also collapsed into their parent TE classes for paired comparisons.
+
+The comparison is descriptive rather than an accuracy benchmark: without an
+independent truth set, greater coverage or copy number does not necessarily
+mean a more accurate annotation.
+
+-----
+
 ## Relationship to EarlGrey and RepeatCraft
 
 DRayTEannotator2 is complementary to EarlGrey and RepeatCraft.
