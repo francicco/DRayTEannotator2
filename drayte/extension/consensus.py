@@ -69,7 +69,7 @@ def run_extend_consensus(
         for line in process.stdout:
             line = line.rstrip()
             if line:
-                LOGGER.info("[extend] %s", line)
+                LOGGER.info("[extend:%s] %s", Path(family_fasta).stem, line)
                 logh.write(line + "\n")
         rc = process.wait()
         if rc != 0:

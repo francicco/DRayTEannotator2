@@ -7,8 +7,9 @@ import hashlib
 import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from Bio import SeqIO
 
@@ -23,6 +24,33 @@ from drayte.extension import (
 )
 
 from drayte.extension.extract_align import safe_filename
+
+
+def extension_worker_count(config) -> int:
+    """Scheduling only: worker count must not invalidate biological checkpoints."""
+    workers = config.extra.get("extension_workers")
+    if workers is None:
+        workers = config.threads
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers < 1:
+        raise ValueError(
+            "extension_workers must be a positive integer; omit it or use null "
+            "to use the pipeline threads setting (also a positive integer)"
+        )
+    return workers
+
+
+def validate_family_filenames(family_ids: Iterable[str]) -> None:
+    """Reject families that would share extraction, working, or output paths."""
+    owners: dict[str, str] = {}
+    for te_id in family_ids:
+        filename = safe_filename(te_id)
+        if filename in owners:
+            raise ValueError(
+                f"Families {owners[filename]!r} and {te_id!r} map to the same "
+                f"extension filename {filename!r}; use unique family identifiers"
+            )
+        owners[filename] = te_id
+
 
 def gunzip_to_file(src_gz: Path, dest_fa: Path, logger) -> None:
     if dest_fa.exists() and dest_fa.stat().st_size > 0:
@@ -353,6 +381,7 @@ def prepare_complete_extension_checkpoint(
 
 #def run(config, discovery_result: dict, structure_result: Optional[dict], logger) -> dict:
 def run(config, discovery_result: dict, logger) -> dict:
+    requested_workers = extension_worker_count(config)
     outdir = stage_dir(config.outdir_path, "extension")
 
     logger.info("=" * 80)
@@ -525,6 +554,11 @@ def run(config, discovery_result: dict, logger) -> dict:
     else:
         logger.info("Normalized candidate FASTA already exists: %s", final_query_fasta)
 
+    # Extraction uses these same filenames, so check before it writes anything.
+    validate_family_filenames(
+        record.id for record in SeqIO.parse(str(final_query_fasta), "fasta")
+    )
+
     blast_query_copy = blastfiles / final_query_fasta.name
     if blast_query_copy.exists() and blast_query_copy.stat().st_size > 0:
         if sha256_file(blast_query_copy) != input_signature["query_fasta_sha256"]:
@@ -560,9 +594,10 @@ def run(config, discovery_result: dict, logger) -> dict:
     repeat_after_me_dir = config.extra["repeat_after_me_dir"]
     phrap_dir = config.extra["phrap_dir"]
 
-    summary_rows: list[dict] = []
+    validate_family_filenames(extracted)
 
-    for te_id, cat_file in extracted.items():
+    def extend_family(item: tuple[str, Path]) -> dict:
+        te_id, cat_file = item
         safe_te_id = safe_filename(te_id)
 
         rep_file = final_consensuses / f"{safe_te_id}_rep.fa"
@@ -634,20 +669,49 @@ def run(config, discovery_result: dict, logger) -> dict:
             error_message = str(exc)
             logger.warning("Could not extend %s: %s", cat_file, exc)
 
-        summary_rows.append(
-            {
-                "te_id": te_id,
-                "cat_file": str(cat_file),
-                "status": status,
-                "category": category,
-                "rep_fa": str(rep_fa) if rep_fa else "",
-                "msa_fa": str(msa_fa) if msa_fa else "",
-                "png_file": str(png_file) if png_file else "",
-                "hit_count": hit_count,
-                "consensus_length": consensus_length,
-                "error_message": error_message,
+        return {
+            "te_id": te_id,
+            "cat_file": str(cat_file),
+            "status": status,
+            "category": category,
+            "rep_fa": str(rep_fa) if rep_fa else "",
+            "msa_fa": str(msa_fa) if msa_fa else "",
+            "png_file": str(png_file) if png_file else "",
+            "hit_count": hit_count,
+            "consensus_length": consensus_length,
+            "error_message": error_message,
+        }
+
+    # Each job owns its family files. Only the main thread collects results and
+    # writes the summary, retaining extraction order regardless of finish order.
+    workers = min(requested_workers, len(extracted))
+    logger.info(
+        "Extending %d families with %d workers (configured: %d)",
+        len(extracted), workers, requested_workers,
+    )
+    if workers <= 1:
+        summary_rows = [extend_family(item) for item in extracted.items()]
+    else:
+        completed_rows: dict[str, dict] = {}
+        executor = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = {
+                executor.submit(extend_family, item): item[0]
+                for item in extracted.items()
             }
-        )
+            for future in as_completed(futures):
+                te_id = futures[future]
+                row = future.result()
+                completed_rows[te_id] = row
+                logger.info(
+                    "Extension progress: %d/%d families finished; %s: %s",
+                    len(completed_rows), len(extracted), te_id, row["status"],
+                )
+        finally:
+            # On interruption, let active jobs finish but do not start queued
+            # families. The same output checks support a later resume.
+            executor.shutdown(wait=True, cancel_futures=True)
+        summary_rows = [completed_rows[te_id] for te_id in extracted]
 
     summary_file = outdir / "extension_summary.tsv"
     write_summary(summary_file, summary_rows)

@@ -19,6 +19,8 @@ getorf_bin: getorf
 cdhit_est_bin: cd-hit-est
 
 cdhit_identity: 0.95
+# Concurrent family-extension jobs; null uses threads, 1 restores serial mode.
+extension_workers: null
 extension_max_hits: 50
 extension_left_buffer: 100
 extension_right_buffer: 100

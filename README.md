@@ -260,6 +260,7 @@ repeatmasker_bin: RepeatMasker
 repeatclassifier_bin: RepeatClassifier
 
 # Extension
+extension_workers: null  # defaults to threads; use 1 for serial family extension
 repeatmodeler_extend_script: davidExtendConsRAM.pl
 ucsc_tools_dir: /path/to/kent/bin
 repeat_after_me_dir: /path/to/RepeatAfterMe
@@ -271,6 +272,27 @@ refine_max_gap: 150
 ```
 
 Adjust all paths to your local installation.
+
+Consensus extension runs independent TE families concurrently, with one external
+extension process per worker. `extension_workers` must be a positive integer, or
+`null` (the default) to use `threads`. For example, `threads: 16` with
+`extension_workers: 4` uses 16 BLASTN threads in the preceding search and up to four
+concurrent family-extension jobs afterward. Use `extension_workers: 1` for the
+previous serial behavior. The worker count is capped at the number of families.
+
+Each family retains its own working directory and log under
+`extension/extensionwork/` and `extension/extendlogs/`. Combined extension log
+messages include the family name, and the summary keeps extraction order even
+when jobs finish out of order. Individual failures are recorded without stopping
+other families. The external extension commands and biological settings are
+unchanged; workers control family concurrency, not threading inside those tools.
+Reduce workers if memory or disk access becomes limiting, and allow for any
+additional CPUs used internally by your installed tools.
+
+Changing only `extension_workers` preserves existing checkpoints: rerun the same
+pipeline command to resume, skipping completed families and retrying failed or
+unfinished families using the existing resume checks. A completed extension stage
+is reused without rerunning it.
 
 -----
 
