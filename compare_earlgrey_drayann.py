@@ -122,11 +122,31 @@ def find_earlgrey_summary(directory: Path, species: str) -> Path | None:
         [
             directory / f"{species}_summaryFiles" / f"{species}.highLevelCount.txt",
             directory / "summaryFiles" / f"{species}.highLevelCount.txt",
+            directory
+            / f"{species}_EarlGrey"
+            / f"{species}_summaryFiles"
+            / f"{species}.highLevelCount.txt",
+            directory
+            / f"{species}_Earlgrey"
+            / f"{species}_summaryFiles"
+            / f"{species}.highLevelCount.txt",
         ]
     )
     if direct is not None:
         return direct
-    matches = sorted(directory.glob("*_summaryFiles/*.highLevelCount.txt"))
+    matches = [
+        path
+        for path in directory.rglob("*.highLevelCount.txt")
+        if path.parent.name.casefold().endswith("_summaryfiles")
+    ]
+    exact_name = f"{species}.highLevelCount.txt".casefold()
+    matches.sort(
+        key=lambda path: (
+            path.name.casefold() != exact_name,
+            len(path.relative_to(directory).parts),
+            str(path).casefold(),
+        )
+    )
     return first_existing(matches)
 
 

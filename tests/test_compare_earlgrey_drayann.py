@@ -57,7 +57,13 @@ def write_summary(path: Path, total_percent: float, dna_percent: float) -> None:
 def test_compare_discovers_pairs_and_collapses_nested(tmp_path: Path):
     root = tmp_path / "annotations"
     outdir = tmp_path / "comparison"
-    earl = root / "Sp1_Earlgrey" / "Sp1_summaryFiles" / "Sp1.highLevelCount.txt"
+    earl = (
+        root
+        / "Sp1_Earlgrey"
+        / "Sp1_EarlGrey"
+        / "Sp1_summaryFiles"
+        / "Sp1.highLevelCount.txt"
+    )
     dray = (
         root
         / "Sp1_DRayTEannotator2"
