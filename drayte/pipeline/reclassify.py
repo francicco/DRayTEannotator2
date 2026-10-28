@@ -62,6 +62,10 @@ def compare_classified_output(
         "output_families": len(output_ids),
         "missing_families": len(input_ids - output_ids),
         "unexpected_families": len(output_ids - input_ids),
+        "changed_lengths": sum(
+            len(input_sequences[family_id]) != len(output_sequences[family_id])
+            for family_id in shared
+        ),
         "changed_sequences": sum(
             input_sequences[family_id] != output_sequences[family_id]
             for family_id in shared
@@ -77,6 +81,28 @@ def classified_output_matches_input(consensi_fa: Path, classified_fa: Path) -> b
         and comparison["missing_families"] == 0
         and comparison["unexpected_families"] == 0
         and comparison["changed_sequences"] == 0
+    )
+
+
+def classified_output_has_complete_family_set(
+    consensi_fa: Path,
+    classified_fa: Path,
+) -> bool:
+    """Return whether RepeatClassifier preserved every family and its length.
+
+    RepeatClassifier may change sequence content while masking/classifying a
+    library.  Those transformations are valid tool output, so they must not be
+    confused with a partial or stale result.  Family identifiers and lengths
+    are the structural invariants used here; exact input/output hashes in the
+    completion checkpoint protect subsequent resumes.
+    """
+    comparison = compare_classified_output(consensi_fa, classified_fa)
+    return bool(
+        comparison
+        and comparison["input_families"] > 0
+        and comparison["missing_families"] == 0
+        and comparison["unexpected_families"] == 0
+        and comparison["changed_lengths"] == 0
     )
 
 
@@ -177,18 +203,19 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
     expected = outdir / f"{consensi_fa.name}.classified"
     checkpoint = repeatclassifier_checkpoint_path(outdir)
 
-    if classified_output_matches_input(consensi_fa, expected):
-        if checkpoint_is_valid(
-            checkpoint,
-            consensi_fa,
+    if checkpoint_is_valid(
+        checkpoint,
+        consensi_fa,
+        expected,
+        repeatclassifier_bin,
+    ) and classified_output_has_complete_family_set(consensi_fa, expected):
+        logger.info(
+            "Validated completed RepeatClassifier checkpoint: %s",
             expected,
-            repeatclassifier_bin,
-        ):
-            logger.info(
-                "Validated completed RepeatClassifier checkpoint: %s",
-                expected,
-            )
-            return expected
+        )
+        return expected
+
+    if classified_output_matches_input(consensi_fa, expected):
         if legacy_manifest_proves_completion(outdir, consensi_fa, expected):
             write_json_atomic(
                 checkpoint,
@@ -221,9 +248,10 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
             logger.warning(
                 "Existing RepeatClassifier output does not match the current "
                 "merged library (%d missing families, %d unexpected families, "
-                "%d changed sequences); moved it to %s",
+                "%d changed lengths, %d changed sequences); moved it to %s",
                 comparison["missing_families"],
                 comparison["unexpected_families"],
+                comparison["changed_lengths"],
                 comparison["changed_sequences"],
                 archived,
             )
@@ -254,18 +282,28 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
     if rc != 0:
         raise RuntimeError(f"RepeatClassifier failed with exit code {rc}")
 
-    if not classified_output_matches_input(consensi_fa, expected):
-        comparison = compare_classified_output(consensi_fa, expected)
+    comparison = compare_classified_output(consensi_fa, expected)
+    if not classified_output_has_complete_family_set(consensi_fa, expected):
         detail = "missing or invalid output"
         if comparison is not None:
             detail = (
                 f"{comparison['missing_families']} missing families, "
                 f"{comparison['unexpected_families']} unexpected families, "
-                f"{comparison['changed_sequences']} changed sequences"
+                f"{comparison['changed_lengths']} changed lengths"
             )
         raise RuntimeError(
             "RepeatClassifier exited successfully but its output does not "
-            f"match the merged input ({detail}): {expected}"
+            f"preserve the complete input family set ({detail}): {expected}"
+        )
+
+    assert comparison is not None
+    if comparison["changed_sequences"]:
+        logger.info(
+            "RepeatClassifier preserved all %d families and sequence lengths; "
+            "it changed sequence content in %d families as part of its normal "
+            "processing",
+            comparison["input_families"],
+            comparison["changed_sequences"],
         )
 
     write_json_atomic(
