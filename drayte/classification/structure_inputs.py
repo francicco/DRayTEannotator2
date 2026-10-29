@@ -135,6 +135,7 @@ def resolve_structure_input_fasta(
     outdir: Path,
     fallback_fasta: Path,
     logger=None,
+    force: bool = False,
 ) -> Path:
     """Resolve and, when possible, build the FASTA used for structure summary.
 
@@ -182,5 +183,5 @@ def resolve_structure_input_fasta(
         output_fasta=structure_fasta,
         heliano_fasta=heliano_fasta,
         logger=logger,
-        force=bool(classification_cfg.get("rebuild_structure_input_fasta", False)),
+        force=force or bool(classification_cfg.get("rebuild_structure_input_fasta", False)),
     )

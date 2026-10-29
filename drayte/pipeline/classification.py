@@ -52,7 +52,7 @@ from drayte.classification.nonauto import (
 from drayte.classification.ltr_detect import detect_ltrs_from_fasta
 
 
-CLASSIFICATION_SIGNATURE_SCHEMA_VERSION = 2
+CLASSIFICATION_SIGNATURE_SCHEMA_VERSION = 3
 CLASSIFICATION_EXECUTION_ONLY_KEYS = frozenset({"chunks", "jobs", "cpu"})
 CLASSIFICATION_CORE_SIGNATURE_KEYS = (
     "stage_name",
@@ -126,10 +126,18 @@ def classification_input_signature(
     stage_name: str,
     final_mode: bool,
 ) -> dict:
-    result_config = {
+    legacy_result_config = {
         key: value
         for key, value in classification_cfg.items()
         if key not in CLASSIFICATION_EXECUTION_ONLY_KEYS
+    }
+    # Extension pins this path when resuming. Its resolved sequence content is
+    # already checked by structure_library_sha256, so adding the internal path
+    # alone must not invalidate an otherwise identical classification run.
+    result_config = {
+        key: value
+        for key, value in legacy_result_config.items()
+        if key != "structure_base_fasta"
     }
     execution_config = {
         key: classification_cfg[key]
@@ -137,6 +145,10 @@ def classification_input_signature(
         if key in classification_cfg
     }
     result_config_json = json.dumps(result_config, sort_keys=True, default=str)
+    result_config_sha256 = hashlib.sha256(result_config_json.encode("utf-8")).hexdigest()
+    legacy_config_sha256 = hashlib.sha256(
+        json.dumps(legacy_result_config, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
     return {
         "schema_version": CLASSIFICATION_SIGNATURE_SCHEMA_VERSION,
         "stage_name": stage_name,
@@ -144,9 +156,13 @@ def classification_input_signature(
         "library_sha256": sha256_file(library),
         "structure_library_sha256": sha256_file(structure_library),
         "extensionwork_sha256": selected_extensionwork_sha256(extensionwork_dir),
-        "result_config_sha256": hashlib.sha256(
-            result_config_json.encode("utf-8")
-        ).hexdigest(),
+        "result_config_sha256": result_config_sha256,
+        "result_config": json.loads(result_config_json),
+        # Reconstruct schema-two hashes with and without the resume-injected
+        # key. Every other setting must still match exactly for migration.
+        "legacy_result_config_sha256": sorted(
+            {legacy_config_sha256, result_config_sha256}
+        ),
         "execution_config": execution_config,
     }
 
@@ -164,6 +180,11 @@ def classification_signatures_compatible(
     change from a result-affecting change.  They may be migrated only when all
     biological input digests still match; the caller additionally validates the
     classified library and every required output before reuse.
+
+    Version-two hashes also included structure_base_fasta, which extension adds
+    internally on resume. Migrate only if the cached hash exactly matches the
+    current settings with or without that one path, and the biological digests
+    match. All other result-affecting settings remain part of the comparison.
     """
     if any(cached.get(key) != current.get(key) for key in CLASSIFICATION_CORE_SIGNATURE_KEYS):
         return False, False
@@ -172,6 +193,12 @@ def classification_signatures_compatible(
     if cached_version == 1:
         return True, True
 
+    if cached_version == 2:
+        compatible = cached.get("result_config_sha256") in current.get(
+            "legacy_result_config_sha256", []
+        )
+        return compatible, compatible
+
     if cached_version != CLASSIFICATION_SIGNATURE_SCHEMA_VERSION:
         return False, False
 
@@ -179,6 +206,32 @@ def classification_signatures_compatible(
         cached.get("result_config_sha256") == current.get("result_config_sha256"),
         False,
     )
+
+
+def classification_signature_mismatch_details(cached: dict, current: dict) -> str:
+    differences = [
+        key for key in CLASSIFICATION_CORE_SIGNATURE_KEYS
+        if cached.get(key) != current.get(key)
+    ]
+    cached_config = cached.get("result_config")
+    current_config = current.get("result_config")
+    if isinstance(cached_config, dict) and isinstance(current_config, dict):
+        differences.extend(
+            f"classification.{key}"
+            for key in sorted(cached_config.keys() | current_config.keys())
+            if (key not in cached_config or key not in current_config
+                or cached_config[key] != current_config[key])
+        )
+    elif (
+        cached.get("schema_version", 1) == 2
+        and cached.get("result_config_sha256") not in current.get(
+            "legacy_result_config_sha256", []
+        )
+    ):
+        differences.append("classification settings (legacy checkpoint stores only a hash)")
+    if cached.get("schema_version", 1) not in (1, 2, CLASSIFICATION_SIGNATURE_SCHEMA_VERSION):
+        differences.append(f"unsupported signature schema {cached['schema_version']!r}")
+    return ", ".join(differences) or "classification configuration fingerprint"
 
 
 def manifest_outputs_are_valid(result: dict) -> bool:
@@ -259,6 +312,9 @@ def run(
         outdir=outdir,
         fallback_fasta=library,
         logger=logger,
+        # Validate the actual selected sources, even when an alternative base
+        # has an older timestamp than the previous derived FASTA.
+        force=True,
     )
     validate_file(structure_library, "structure input library")
 
@@ -287,9 +343,14 @@ def run(
                     )
                 )
                 if not signatures_compatible:
+                    details = classification_signature_mismatch_details(
+                        cached_signature, input_signature,
+                    )
+                    logger.error("Classification checkpoint mismatch: %s", details)
                     raise RuntimeError(
                         "Existing classification outputs were created from different "
-                        "biological inputs or result-affecting settings. Move the "
+                        "biological inputs or result-affecting settings. "
+                        f"Differences: {details}. Move the "
                         "existing classification stage directory aside, or use a new "
                         "outdir, before restarting."
                     )
@@ -323,10 +384,11 @@ def run(
             if manifest_outputs_are_valid(cached_result):
                 if legacy_signature_migration:
                     logger.warning(
-                        "Migrating legacy classification checkpoint after validating "
-                        "unchanged biological inputs and outputs; execution-only "
-                        "settings such as chunks, jobs, and cpu no longer invalidate "
-                        "completed classification results"
+                        "Migrating classification checkpoint to signature schema %d "
+                        "after validating matching input fingerprints and required "
+                        "outputs; scheduling settings and the internal structure "
+                        "base path do not invalidate unchanged results",
+                        CLASSIFICATION_SIGNATURE_SCHEMA_VERSION,
                     )
                 cached_result["input_signature"] = input_signature
                 write_json(manifest, cached_result)

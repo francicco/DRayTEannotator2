@@ -308,6 +308,15 @@ outputs have been validated. For extension, the cached query is retained as the
 downstream structure-analysis base so a historical checkpoint is not mixed with
 a subsequently regenerated discovery library.
 
+Classification checks the resolved structural-input content rather than treating
+the internal `structure_base_fasta` path added during extension resume as a new
+biological setting. The derived structural-input FASTA is reconstructed from the
+selected sources before fingerprinting, so older source timestamps cannot hide
+changed content. Older classification checkpoints are migrated only after
+their input fingerprints, applicable settings hashes, and required outputs have
+been validated. Changed inputs or classification settings still stop resume;
+the error now names the differing fingerprint or setting.
+
 Use a new output directory when intentionally starting an analysis with different
 inputs or settings.
 
