@@ -35,6 +35,8 @@ def run(config, logger) -> dict:
         "normalized_library": step1_result["normalized_library"],
         "repeatmasker_dir": step1_result["rmasker_dir"],
     }
+    if "repeatmasker_log" in step1_result:
+        result["repeatmasker_log"] = step1_result["repeatmasker_log"]
 
     logger.info("Discovery stage completed")
     return result

@@ -25,7 +25,12 @@ def test_external_library_skips_repeatmodeler_and_reuses_common_outputs(
     def record_command(cmd, cwd=None, logger=None):
         commands.append([str(value) for value in cmd])
 
+    def record_file_command(cmd, log_file, logger, cwd=None, env=None, label="Command"):
+        commands.append([str(value) for value in cmd])
+        Path(log_file).write_text("recorded RepeatMasker\n")
+
     monkeypatch.setattr(step1, "run_command", record_command)
+    monkeypatch.setattr(step1, "run_command_to_file", record_file_command)
 
     result = step1.run_step1(
         genome=genome,
@@ -69,6 +74,10 @@ def test_normal_path_still_runs_builddatabase_and_repeatmodeler(tmp_path, monkey
     def record_command(cmd, cwd=None, logger=None):
         commands.append([str(value) for value in cmd])
 
+    def record_file_command(cmd, log_file, logger, cwd=None, env=None, label="Command"):
+        commands.append([str(value) for value in cmd])
+        Path(log_file).write_text("recorded RepeatMasker\n")
+
     def fake_repeatmodeler(cmd, log_file, cwd=None, logger=None, prefix="subprocess"):
         repeatmodeler_commands.append([str(value) for value in cmd])
         result_dir = cwd / "RM_test"
@@ -78,6 +87,7 @@ def test_normal_path_still_runs_builddatabase_and_repeatmodeler(tmp_path, monkey
         )
 
     monkeypatch.setattr(step1, "run_command", record_command)
+    monkeypatch.setattr(step1, "run_command_to_file", record_file_command)
     monkeypatch.setattr(
         step1, "run_command_to_logger_and_file", fake_repeatmodeler
     )

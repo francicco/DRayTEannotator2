@@ -119,6 +119,7 @@ def log_final_results(
             ("RepeatMasker summary table", "repeatmasker_tbl"),
             ("Masked genome", "masked_genome"),
             ("RepeatMasker alignments", "align"),
+            ("RepeatMasker execution log", "repeatmasker_log"),
         ],
     )
 

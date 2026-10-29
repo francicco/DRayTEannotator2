@@ -12,6 +12,8 @@ from typing import Optional
 
 from Bio import SeqIO
 
+from drayte.utils.subprocess import run_command_to_file
+
 
 LOGGER = logging.getLogger("drayte.step1")
 
@@ -501,6 +503,7 @@ def run_step1(
         )
 
     logger.info("Step 4/4: checking/running RepeatMasker")
+    repeatmasker_log = rmasker_dir / f"{species}.RepeatMasker.log"
 
     if repeatmasker_outputs_exist(
         assemblies_dir,
@@ -511,7 +514,7 @@ def run_step1(
             "RepeatMasker outputs already exist; skipping RepeatMasker"
         )
     else:
-        run_command(
+        run_command_to_file(
             [
                 str(repeatmasker_bin),
                 "-xsmall",
@@ -525,7 +528,9 @@ def run_step1(
                 "-s",
                 str(genome_fa),
             ],
+            log_file=repeatmasker_log,
             logger=logger,
+            label="RepeatMasker",
         )
 
     move_repeatmasker_outputs(
@@ -542,7 +547,7 @@ def run_step1(
     logger.info("  Normalized library: %s", edited_fasta)
     logger.info("  RepeatMasker dir: %s", rmasker_dir)
 
-    return {
+    result = {
         "outdir": str(outdir),
         "assemblies_dir": str(assemblies_dir),
         "rmodeler_dir": str(rmodeler_dir),
@@ -555,6 +560,9 @@ def run_step1(
             rmasker_dir / f"{species}.fa.tbl"
         ),
     }
+    if repeatmasker_log.is_file():
+        result["repeatmasker_log"] = str(repeatmasker_log)
+    return result
 
 def main() -> None:
     args = parse_args()

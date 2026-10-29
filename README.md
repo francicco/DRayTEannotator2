@@ -311,6 +311,18 @@ a subsequently regenerated discovery library.
 Use a new output directory when intentionally starting an analysis with different
 inputs or settings.
 
+RepeatMasker's full stdout and stderr are saved to files rather than printed in
+the terminal or copied into `drayte.log`:
+
+- Initial pass: `discovery/rmasker_dir/<species>.RepeatMasker.log`
+- Final pass: `final_annotation/<species>.RepeatMasker.log`
+
+The main log shows brief start, completion, or failure messages with the full-log
+path. Each rerun appends an attempt header with a UTC timestamp and command,
+preserving earlier output. Cache skips leave existing logs untouched, and older
+completed runs without these logs remain valid. Available log paths are also
+recorded as `repeatmasker_log` in the corresponding stage manifest.
+
 -----
 
 ## Post-processing

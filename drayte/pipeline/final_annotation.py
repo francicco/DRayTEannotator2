@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 from pathlib import Path
 
 from drayte.utils.paths import stage_dir, ensure_dir
+from drayte.utils.subprocess import run_command_to_file
 
 
 def final_annotation_exists(outdir: Path, taxon: str) -> bool:
@@ -62,6 +62,7 @@ def run(config, curation_result: dict, logger) -> dict:
     masked = outdir / f"{taxon}.fa.masked"
     cat_gz = outdir / f"{taxon}.fa.cat.gz"
     align = outdir / f"{taxon}.fa.align"
+    repeatmasker_log = outdir / f"{taxon}.RepeatMasker.log"
 
     outputs_exist = final_annotation_exists(outdir, taxon)
     outputs_current = outputs_exist and out.stat().st_mtime >= final_library.stat().st_mtime
@@ -86,11 +87,16 @@ def run(config, curation_result: dict, logger) -> dict:
             str(genome_fa),
         ]
 
-        logger.info("Running final RepeatMasker: %s", " ".join(cmd))
-        subprocess.run(cmd, check=True, cwd=str(genome_fa.parent))
+        run_command_to_file(
+            cmd,
+            log_file=repeatmasker_log,
+            logger=logger,
+            cwd=genome_fa.parent,
+            label="RepeatMasker",
+        )
         move_repeatmasker_outputs(genome_fa, outdir, logger)
 
-    return {
+    result = {
         "stage": "final_annotation",
         "outdir": str(outdir),
         "repeatmasker_tbl": str(tbl),
@@ -100,3 +106,6 @@ def run(config, curation_result: dict, logger) -> dict:
         "cat_gz": str(cat_gz),
         "align": str(align),
     }
+    if repeatmasker_log.is_file():
+        result["repeatmasker_log"] = str(repeatmasker_log.resolve())
+    return result
