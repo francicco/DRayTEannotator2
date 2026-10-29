@@ -302,6 +302,26 @@ Run with:
 
 `drayte --config config.yaml`
 
+Supply a reference FASTA for classification rescue on the command line with:
+
+```bash
+drayte --config config.yaml \
+  --mmseqs-rescue-db /path/to/Heliconius.classification.fa
+```
+
+This flag overrides `classification.mmseqs_rescue_db` in the YAML file while
+preserving the other classification settings. Without the flag, the YAML value
+is used. It selects classification evidence; it does not add the reference
+sequences directly to the final annotation library. The same option is also
+available on the standalone `drayte-classify` command.
+
+The existing rescue algorithm requires reciprocal matches, but its automatic
+MMseqs search generates only the discovered-library-to-reference direction.
+For external references with distinct family identifiers, those matches will
+not yield rescued classifications until the reciprocal-search handling is
+corrected. The flag exposes the configuration option; it does not fix that
+algorithmic limitation.
+
 Rerunning the same command against the same output directory automatically
 resumes the analysis. A stage is skipped only after its manifest and required
 outputs have been validated. For extension, the cached query is retained as the

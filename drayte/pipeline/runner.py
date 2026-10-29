@@ -35,6 +35,14 @@ def parse_args() -> argparse.Namespace:
             "RepeatModeler discovery."
         ),
     )
+    parser.add_argument(
+        "--mmseqs-rescue-db",
+        default=None,
+        help=(
+            "Reference FASTA for classification rescue. Overrides "
+            "classification.mmseqs_rescue_db in the config file."
+        ),
+    )
     return parser.parse_args()
 
 #def parse_args() -> argparse.Namespace:
@@ -192,6 +200,19 @@ def main() -> None:
     if args.repeatmodeler_library:
         config.extra["repeatmodeler_library"] = str(
             Path(args.repeatmodeler_library).expanduser().resolve()
+        )
+    if args.mmseqs_rescue_db is not None:
+        classification_cfg = config.extra.get("classification")
+        if classification_cfg is None:
+            classification_cfg = {}
+            config.extra["classification"] = classification_cfg
+        if not isinstance(classification_cfg, dict):
+            raise ValueError(
+                "The classification config section must be a mapping "
+                "to use --mmseqs-rescue-db"
+            )
+        classification_cfg["mmseqs_rescue_db"] = str(
+            Path(args.mmseqs_rescue_db).expanduser().resolve()
         )
     ensure_dir(config.outdir_path)
     logger = setup_logger(log_file=str(config.outdir_path / "drayte.log"))
