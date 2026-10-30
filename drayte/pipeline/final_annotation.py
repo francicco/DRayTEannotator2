@@ -5,6 +5,11 @@ from pathlib import Path
 
 from drayte.utils.paths import stage_dir, ensure_dir
 from drayte.utils.subprocess import run_command_to_file
+from drayte.utils.repeatmasker_checkpoint import (
+    begin_attempt, checkpoint_is_valid, checkpoint_path, input_signature,
+    legacy_outputs_usable, remove_stale_source_outputs, validate_outputs,
+    write_checkpoint,
+)
 
 
 def final_annotation_exists(outdir: Path, taxon: str) -> bool:
@@ -65,14 +70,25 @@ def run(config, curation_result: dict, logger) -> dict:
     repeatmasker_log = outdir / f"{taxon}.RepeatMasker.log"
 
     outputs_exist = final_annotation_exists(outdir, taxon)
-    outputs_current = outputs_exist and out.stat().st_mtime >= final_library.stat().st_mtime
+    required = [out, tbl, masked, cat_gz, align]
+    checkpoint = checkpoint_path(outdir)
+    options = [str(config.extra.get("repeatmasker_bin", "RepeatMasker")),
+               "-s", "-xsmall", "-gc", "-gff", "-norna", "-a"]
+    signature = input_signature(genome_fa, final_library, options)
+    outputs_current = checkpoint_is_valid(checkpoint, signature, required)
+    if (not checkpoint.exists() and outputs_exist
+            and out.stat().st_mtime >= final_library.stat().st_mtime
+            and legacy_outputs_usable(required, repeatmasker_log)):
+        write_checkpoint(checkpoint, signature, required, legacy=True)
+        outputs_current = True
+        logger.warning("Adopted complete legacy RepeatMasker outputs; historical input provenance is unavailable")
     
     if outputs_current:
-        logger.info("Final RepeatMasker outputs already exist and are current; skipping")
+        logger.info("Validated completed final RepeatMasker checkpoint; skipping")
     else:
         if outputs_exist:
             logger.info(
-                "Classified library is newer than final RepeatMasker outputs; re-running"
+                "Final RepeatMasker checkpoint or inputs changed; re-running"
             )
         cmd = [
             str(config.extra.get("repeatmasker_bin", "RepeatMasker")),
@@ -87,6 +103,8 @@ def run(config, curation_result: dict, logger) -> dict:
             str(genome_fa),
         ]
 
+        begin_attempt(checkpoint, signature)
+        remove_stale_source_outputs(genome_fa, [".out", ".tbl", ".gff", ".masked", ".cat.gz", ".align"])
         run_command_to_file(
             cmd,
             log_file=repeatmasker_log,
@@ -94,7 +112,10 @@ def run(config, curation_result: dict, logger) -> dict:
             cwd=genome_fa.parent,
             label="RepeatMasker",
         )
+        validate_outputs([genome_fa.parent / f"{genome_fa.name}{suffix}"
+                          for suffix in (".out", ".tbl", ".masked", ".cat.gz", ".align")])
         move_repeatmasker_outputs(genome_fa, outdir, logger)
+        write_checkpoint(checkpoint, signature, required)
 
     result = {
         "stage": "final_annotation",

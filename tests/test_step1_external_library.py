@@ -28,6 +28,8 @@ def test_external_library_skips_repeatmodeler_and_reuses_common_outputs(
     def record_file_command(cmd, log_file, logger, cwd=None, env=None, label="Command"):
         commands.append([str(value) for value in cmd])
         Path(log_file).write_text("recorded RepeatMasker\n")
+        for suffix in (".out", ".tbl"):
+            Path(str(cmd[-1]) + suffix).write_text(f"RepeatMasker {suffix}\n")
 
     monkeypatch.setattr(step1, "run_command", record_command)
     monkeypatch.setattr(step1, "run_command_to_file", record_file_command)
@@ -77,6 +79,8 @@ def test_normal_path_still_runs_builddatabase_and_repeatmodeler(tmp_path, monkey
     def record_file_command(cmd, log_file, logger, cwd=None, env=None, label="Command"):
         commands.append([str(value) for value in cmd])
         Path(log_file).write_text("recorded RepeatMasker\n")
+        for suffix in (".out", ".tbl"):
+            Path(str(cmd[-1]) + suffix).write_text(f"RepeatMasker {suffix}\n")
 
     def fake_repeatmodeler(cmd, log_file, cwd=None, logger=None, prefix="subprocess"):
         repeatmodeler_commands.append([str(value) for value in cmd])

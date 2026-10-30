@@ -83,3 +83,10 @@ def test_rescue_flag_rejects_non_mapping_section_before_running_tools(tmp_path, 
         capture_pipeline_config(tmp_path, monkeypatch, "not-a-mapping",
                                 ["--mmseqs-rescue-db", "reference.fa"])
     assert not (tmp_path / "results").exists()
+
+
+def test_storage_flag_is_forwarded_without_changing_classification(tmp_path, monkeypatch):
+    settings = {"mmseqs_rescue_db": "configured.fa", "cpu": 2}
+    config = capture_pipeline_config(tmp_path, monkeypatch, settings, ["--storage-mode", "compact"])
+    assert config.extra["storage"]["mode"] == "compact"
+    assert config.extra["classification"] == settings

@@ -340,6 +340,29 @@ the error now names the differing fingerprint or setting.
 Use a new output directory when intentionally starting an analysis with different
 inputs or settings.
 
+### Storage management for many genomes
+
+Use `drayte --config config.yaml --storage-mode compact` to remove validated
+completed-stage scratch and archive bulky evidence after a successful run.
+The default remains `keep`. The equivalent YAML is `storage: {mode: compact}`.
+Core final libraries, RepeatMasker `.out/.tbl`, refined annotations, summaries,
+and completion manifests remain directly accessible. Per-family work, selected
+search chunks, masked FASTAs, and final alignments are stored in verified
+compressed archives under `.storage/`; resuming `drayte` restores them before
+checking stage fingerprints. Do not delete that directory.
+
+For an existing **idle** run, preview with:
+
+```bash
+python -m drayte.storage.cli --config Eisa.config.yaml
+```
+
+Add `--apply` to compact, or `--restore --apply` to restore loose evidence for
+inspection. After reinstalling the editable package, `drayte-storage` is an
+equivalent command. Full procedures, retained files, archive verification,
+locking, temporary quota headroom, and legacy checkpoint limits are documented
+in [Storage management](docs/storage-management.md).
+
 RepeatMasker's full stdout and stderr are saved to files rather than printed in
 the terminal or copied into `drayte.log`:
 

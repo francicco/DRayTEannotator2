@@ -13,6 +13,11 @@ from typing import Optional
 from Bio import SeqIO
 
 from drayte.utils.subprocess import run_command_to_file
+from drayte.utils.repeatmasker_checkpoint import (
+    begin_attempt, checkpoint_is_valid, checkpoint_path, input_signature,
+    legacy_outputs_usable, remove_stale_source_outputs, sha256_file,
+    validate_outputs, write_checkpoint,
+)
 
 
 LOGGER = logging.getLogger("drayte.step1")
@@ -267,11 +272,13 @@ def normalize_family_headers(
             SeqIO.write(record, outfile, "fasta")
 
 def repeatmasker_outputs_exist(assemblies_dir: Path, rmasker_dir: Path, species: str) -> bool:
-    candidates = [
-        assemblies_dir / f"{species}.fa.tbl",
-        rmasker_dir / f"{species}.fa.tbl",
-    ]
-    return any(p.exists() and p.stat().st_size > 0 for p in candidates)
+    # A table can be written before a failed/quota-exhausted run exits.
+    return any(
+        all((directory / f"{species}.fa{suffix}").is_file()
+            and (directory / f"{species}.fa{suffix}").stat().st_size > 0
+            for suffix in (".out", ".tbl"))
+        for directory in (rmasker_dir, assemblies_dir)
+    )
 
 
 def move_repeatmasker_outputs(
@@ -279,15 +286,18 @@ def move_repeatmasker_outputs(
     rmasker_dir: Path,
     species: str,
     logger: Optional[logging.Logger] = None,
+    overwrite: bool = False,
 ) -> None:
     logger = logger or LOGGER
     for suffix in [".out", ".tbl", ".cat.gz", ".masked", ".gff"]:
         src = assemblies_dir / f"{species}.fa{suffix}"
         dst = rmasker_dir / src.name
         if src.exists():
-            if dst.exists():
+            if dst.exists() and not overwrite:
                 logger.info("RepeatMasker output already moved: %s", dst)
             else:
+                if dst.exists():
+                    dst.unlink()
                 logger.info("Moving %s -> %s", src, dst)
                 shutil.move(str(src), str(dst))
 
@@ -316,6 +326,11 @@ def run_step1(
     assemblies_dir = ensure_dir(outdir / "assemblies_dir")
     rmodeler_dir = ensure_dir(outdir / "rmodeler_dir")
     rmasker_dir = ensure_dir(outdir / "rmasker_dir")
+    previous_library = rmodeler_dir / "consensi.fa.classified"
+    previous_library_hash = (
+        sha256_file(previous_library)
+        if previous_library.is_file() and previous_library.stat().st_size else None
+    )
 
     if repeatmodeler_library is None:
         validate_inputs(genome, repeatmodeler_dir, repeatscout_dir)
@@ -504,16 +519,32 @@ def run_step1(
 
     logger.info("Step 4/4: checking/running RepeatMasker")
     repeatmasker_log = rmasker_dir / f"{species}.RepeatMasker.log"
-
-    if repeatmasker_outputs_exist(
-        assemblies_dir,
-        rmasker_dir,
-        species,
+    checkpoint = checkpoint_path(rmasker_dir)
+    options = [str(repeatmasker_bin), "-xsmall", "-gc", "-gff", "-norna", "-s"]
+    signature = input_signature(genome_fa, copied_consensi, options)
+    required = [rmasker_dir / f"{species}.fa{suffix}" for suffix in (".out", ".tbl")]
+    reusable = checkpoint_is_valid(checkpoint, signature, required)
+    if not checkpoint.exists() and (
+        previous_library_hash is None or previous_library_hash == signature["library_sha256"]
     ):
+        for directory in (rmasker_dir, assemblies_dir):
+            legacy = [directory / f"{species}.fa{suffix}" for suffix in (".out", ".tbl")]
+            if legacy_outputs_usable(legacy, repeatmasker_log):
+                if directory == assemblies_dir:
+                    move_repeatmasker_outputs(assemblies_dir, rmasker_dir, species,
+                                             logger=logger, overwrite=True)
+                write_checkpoint(checkpoint, signature, required, legacy=True)
+                reusable = True
+                logger.warning("Adopted complete legacy RepeatMasker outputs; historical input provenance is unavailable")
+                break
+
+    if reusable:
         logger.info(
-            "RepeatMasker outputs already exist; skipping RepeatMasker"
+            "Validated completed RepeatMasker checkpoint; skipping RepeatMasker"
         )
     else:
+        begin_attempt(checkpoint, signature)
+        remove_stale_source_outputs(genome_fa, [".out", ".tbl", ".cat.gz", ".masked", ".gff"])
         run_command_to_file(
             [
                 str(repeatmasker_bin),
@@ -532,13 +563,10 @@ def run_step1(
             logger=logger,
             label="RepeatMasker",
         )
-
-    move_repeatmasker_outputs(
-        assemblies_dir,
-        rmasker_dir,
-        species,
-        logger=logger,
-    )
+        validate_outputs([assemblies_dir / f"{species}.fa{suffix}" for suffix in (".out", ".tbl")])
+        move_repeatmasker_outputs(assemblies_dir, rmasker_dir, species,
+                                 logger=logger, overwrite=True)
+        write_checkpoint(checkpoint, signature, required)
 
     logger.info("Step1 completed successfully")
     logger.info("Key outputs:")

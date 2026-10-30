@@ -4,6 +4,11 @@ species: SPECIESTAG
 threads: 16
 preset: Collembola
 
+# Opt in to verified evidence archives and removal of completed-stage scratch.
+# Rerunning drayte automatically restores managed evidence before stage checks.
+storage:
+  mode: keep  # use compact for batch runs after validating your workflow
+
 repeatmodeler_dir: /user/work/tk19812/software/RepeatModeler-2.0.4
 repeatscout_dir: /user/work/tk19812/software/RepeatScout
 repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker

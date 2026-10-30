@@ -22,6 +22,8 @@ from drayte.refinement.refine_repeatmasker import (
     refine_repeatmasker,
 )
 from drayte.reporting.SummaryFilesGen import run_summary_files
+from drayte.storage.archive import ArchiveStore
+from drayte.storage.policy import cleanup_stage_scratch, compact_run, output_lock, storage_mode
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DRayTE pipeline runner")
@@ -42,6 +44,10 @@ def parse_args() -> argparse.Namespace:
             "Reference FASTA for classification rescue. Overrides "
             "classification.mmseqs_rescue_db in the config file."
         ),
+    )
+    parser.add_argument(
+        "--storage-mode", choices=("keep", "compact"), default=None,
+        help="Override storage.mode: retain loose evidence, or archive it after successful completion.",
     )
     return parser.parse_args()
 
@@ -214,15 +220,36 @@ def main() -> None:
         classification_cfg["mmseqs_rescue_db"] = str(
             Path(args.mmseqs_rescue_db).expanduser().resolve()
         )
+    if args.storage_mode is not None:
+        settings = config.extra.get("storage")
+        if settings is None:
+            settings = {}
+            config.extra["storage"] = settings
+        if not isinstance(settings, dict):
+            raise ValueError("The storage config section must be a mapping")
+        settings["mode"] = args.storage_mode
+    mode = storage_mode(config)
+    # Restoration precedes every stage, including its checkpoint validation.
+    with output_lock(config.outdir_path):
+        ArchiveStore(config.outdir_path).restore_all()
+        run_pipeline(config, args.config)
+        if mode == "compact":
+            compact_run(config, setup_logger(log_file=str(config.outdir_path / "drayte.log")),
+                        runtime_inputs_known=True)
+
+
+def run_pipeline(config, config_file=None) -> None:
     ensure_dir(config.outdir_path)
     logger = setup_logger(log_file=str(config.outdir_path / "drayte.log"))
 
-    logger.info("Loaded config from %s", args.config)
+    if config_file is not None:
+        logger.info("Loaded config from %s", config_file)
     logger.info("Running pipeline for species=%s", config.species)
 
 	# Run RepeatModeler
     discovery_result = discovery.run(config, logger)
     write_manifest(config.outdir_path / "discovery", "discovery", discovery_result)
+    cleanup_stage_scratch(config, "discovery", logger)
 
 	# Run Extention - Part 1
     extension_result = extension.run(config, discovery_result, logger)
@@ -239,6 +266,7 @@ def main() -> None:
 	# Optional - Run HELIANO to identify full length Helitron 1 and 2
     heliano_result = heliano.run(config, curation_result, logger)
     write_manifest(config.outdir_path / "heliano", "heliano", heliano_result)
+    cleanup_stage_scratch(config, "heliano", logger)
 
     if heliano_result.get("heliano_unique_library"):
         curation_result["heliano_library"] = heliano_result["heliano_unique_library"]
@@ -256,6 +284,7 @@ def main() -> None:
         "classification",
         classification_result,
     )
+    cleanup_stage_scratch(config, "classification", logger)
 # you can comment from this point on if you want to test the previous step
 	# Rerun RepeatMasker with the liberary just classified further
     final_annotation_input = dict(curation_result)

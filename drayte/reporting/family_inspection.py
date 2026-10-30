@@ -347,6 +347,9 @@ def run(config, refinement_result: dict, logger) -> dict:
     outdir = ensure_dir(stage_dir(config.outdir_path, "family_inspection"))
 
     cfg = config.extra.get("family_inspection", {})
+    # Compact mode creates verified managed archives after full completion;
+    # avoid a second dereferenced copy of the same per-family evidence.
+    compact = (config.extra.get("storage") or {}).get("mode", "keep") == "compact"
 
     logger.info("=" * 80)
     logger.info("STAGE: family_inspection")
@@ -397,7 +400,7 @@ def run(config, refinement_result: dict, logger) -> dict:
             extension_dir=extension_dir,
             use_symlinks=bool(cfg.get("use_symlinks", True)),
             include_plots=bool(cfg.get("include_plots", True)),
-            archive=bool(cfg.get("archive", True)),
+            archive=bool(cfg.get("archive", True)) and not compact,
             include_non_te_repeats=bool(cfg.get("include_non_te_repeats", False)),
         )
     
