@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 from Bio import SeqIO
@@ -23,12 +24,35 @@ def gather_extended_consensi(final_consensus_dir: Path, taxon: str, outfile: Pat
     if not files:
         raise FileNotFoundError(f"No consensus FASTA files found in {final_consensus_dir}")
 
-    logger.info("Merging %d consensus FASTA files into %s", len(files), outfile)
+    # Hash the same normalized text stream as the merge before allocating a
+    # replacement. An identical resume must preserve the historical input's
+    # timestamp; legacy completion receipts depend on that chronology.
+    digest = hashlib.sha256()
+    for fasta in files:
+        with fasta.open(encoding="utf-8") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), ""):
+                digest.update(block.encode("utf-8"))
+    expected_sha256 = digest.hexdigest()
+    if outfile.is_file() and sha256_file(outfile) == expected_sha256:
+        logger.info("Merged library unchanged (%d FASTAs); preserving %s", len(files), outfile)
+        return len(files)
 
-    with open(outfile, "w") as out_handle:
-        for fasta in files:
-            with open(fasta) as in_handle:
-                shutil.copyfileobj(in_handle, out_handle)
+    logger.info("Merging %d consensus FASTA files into %s", len(files), outfile)
+    temporary = outfile.with_name(f".{outfile.name}.{uuid.uuid4().hex}.partial")
+    try:
+        with temporary.open("x", encoding="utf-8") as out_handle:
+            for fasta in files:
+                with fasta.open(encoding="utf-8") as in_handle:
+                    shutil.copyfileobj(in_handle, out_handle)
+            out_handle.flush()
+            os.fsync(out_handle.fileno())
+        if sha256_file(temporary) != expected_sha256:
+            raise RuntimeError("Extended consensus files changed during merge; original merged library retained")
+        if outfile.exists():
+            os.chmod(temporary, outfile.stat().st_mode & 0o777)
+        os.replace(temporary, outfile)
+    finally:
+        temporary.unlink(missing_ok=True)
 
     return len(files)
 
@@ -119,9 +143,16 @@ def repeatclassifier_checkpoint_path(outdir: Path) -> Path:
 
 
 def write_json_atomic(path: Path, data: dict) -> None:
-    temporary = Path(f"{path}.partial")
-    temporary.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
-    os.replace(temporary, path)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.partial")
+    try:
+        with temporary.open("x") as handle:
+            json.dump(data, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def checkpoint_data(
@@ -181,11 +212,16 @@ def legacy_manifest_proves_completion(
         cached_output = Path(cached["classified_library"]).resolve()
     except (KeyError, TypeError):
         return False
-    return (
-        cached_input == consensi_fa.resolve()
-        and cached_output == classified_fa.resolve()
-        and manifest.stat().st_mtime_ns >= classified_fa.stat().st_mtime_ns
-    )
+    if cached_input != consensi_fa.resolve() or cached_output != classified_fa.resolve():
+        return False
+    # New manifests carry content hashes. Older receipts can only establish
+    # completion through input -> output -> receipt chronology; never infer
+    # success from family IDs and lengths alone.
+    if "input_sha256" in cached or "output_sha256" in cached:
+        return (cached.get("input_sha256") == sha256_file(consensi_fa)
+                and cached.get("output_sha256") == sha256_file(classified_fa))
+    return (consensi_fa.stat().st_mtime_ns <= classified_fa.stat().st_mtime_ns
+            <= manifest.stat().st_mtime_ns)
 
 
 def archive_stale_output(path: Path) -> Path:
@@ -215,34 +251,33 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
         )
         return expected
 
-    if classified_output_matches_input(consensi_fa, expected):
-        if legacy_manifest_proves_completion(outdir, consensi_fa, expected):
-            write_json_atomic(
-                checkpoint,
-                checkpoint_data(consensi_fa, expected, repeatclassifier_bin),
-            )
-            logger.info(
-                "Validated and migrated completed legacy RepeatClassifier "
-                "checkpoint: %s",
-                expected,
-            )
-            return expected
-        archived = archive_stale_output(expected)
-        logger.warning(
-            "Existing RepeatClassifier output contains the current family "
-            "sequences but has no successful completion checkpoint; moved "
-            "it to %s",
-            archived,
+    comparison = compare_classified_output(consensi_fa, expected)
+    complete_families = classified_output_has_complete_family_set(consensi_fa, expected)
+    if (not checkpoint.exists() and complete_families
+            and legacy_manifest_proves_completion(outdir, consensi_fa, expected)):
+        write_json_atomic(checkpoint, checkpoint_data(consensi_fa, expected, repeatclassifier_bin))
+        logger.info(
+            "Validated and migrated completed legacy RepeatClassifier checkpoint: %s "
+            "(%d families; %d sequence transformations preserved)",
+            expected, comparison["input_families"], comparison["changed_sequences"],
         )
+        return expected
 
-    elif expected.exists():
-        comparison = compare_classified_output(consensi_fa, expected)
+    if expected.exists():
         archived = archive_stale_output(expected)
         if comparison is None:
             logger.warning(
                 "Existing RepeatClassifier output is empty or invalid; "
                 "moved it to %s",
                 archived,
+            )
+        elif complete_families:
+            reason = ("the existing completion checkpoint is invalid for the current inputs, output, or executable"
+                      if checkpoint.exists() else "successful legacy completion cannot be verified for the current input")
+            logger.warning(
+                "Existing RepeatClassifier output preserves all %d families and lengths "
+                "(%d sequence transformations), but %s; moved it to %s",
+                comparison["input_families"], comparison["changed_sequences"], reason, archived,
             )
         else:
             logger.warning(
@@ -263,6 +298,14 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
     ]
 
     logger.info("Running RepeatClassifier")
+    # Invalidate any older completion record before starting a new attempt.
+    # A failed/partial attempt cannot later be adopted through a legacy receipt.
+    write_json_atomic(checkpoint, {
+        "schema_version": REPEATCLASSIFIER_CHECKPOINT_SCHEMA_VERSION,
+        "status": "running", "input_fasta": str(consensi_fa.resolve()),
+        "input_sha256": sha256_file(consensi_fa),
+        "output_fasta": str(expected.resolve()), "repeatclassifier_bin": str(repeatclassifier_bin),
+    })
     process = subprocess.Popen(
         cmd,
         cwd=str(outdir),
@@ -346,6 +389,8 @@ def run(config, extension_result: dict, logger) -> dict:
         "merged_library": str(merged_consensi),
         "classified_library": str(classified),
         "n_input_fastas": n_files,
+        "input_sha256": sha256_file(merged_consensi),
+        "output_sha256": sha256_file(classified),
     }
 
     logger.info("Reclassify stage completed")

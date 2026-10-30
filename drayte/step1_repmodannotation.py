@@ -373,28 +373,37 @@ def run_step1(
     rm_log = rmodeler_dir / f"{species}.RMrun.out"
 
     if repeatmodeler_library is None:
-        logger.info(
-            "Step 2/4: checking/building RepeatModeler database"
-        )
-
-        if repeatmodeler_db_exists(assemblies_dir, species):
+        # A completed discovery library is sufficient to skip RepeatModeler;
+        # its search database is not needed by the remaining pipeline stages.
+        # Look for that library before recreating potentially large indices.
+        consensi = find_repeatmodeler_library(rmodeler_dir)
+        if consensi is not None:
             logger.info(
-                "RepeatModeler database already exists for %s",
-                db_prefix,
+                "Existing RepeatModeler library found; skipping BuildDatabase "
+                "and RepeatModeler execution: %s",
+                consensi,
             )
         else:
-            run_command(
-                [
-                    str(builddatabase_bin),
-                    "-name",
-                    str(db_prefix),
-                    str(genome_fa),
-                ],
-                logger=logger,
+            logger.info(
+                "Step 2/4: checking/building RepeatModeler database"
             )
+            if repeatmodeler_db_exists(assemblies_dir, species):
+                logger.info(
+                    "RepeatModeler database already exists for %s",
+                    db_prefix,
+                )
+            else:
+                run_command(
+                    [
+                        str(builddatabase_bin),
+                        "-name",
+                        str(db_prefix),
+                        str(genome_fa),
+                    ],
+                    logger=logger,
+                )
 
         logger.info("Step 3/4: checking/running RepeatModeler")
-        consensi = find_repeatmodeler_library(rmodeler_dir)
     else:
         logger.info(
             "Using externally supplied RepeatModeler library: %s",

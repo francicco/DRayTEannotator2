@@ -340,6 +340,16 @@ the error now names the differing fingerprint or setting.
 Use a new output directory when intentionally starting an analysis with different
 inputs or settings.
 
+RepeatClassifier can legitimately transform consensus bases while preserving
+family IDs and lengths. Resume validates its completion checkpoint rather than
+requiring output sequences to equal the unclassified input. Legacy results can
+be migrated with a successful stage receipt and matching hashes, or consistent
+input/output/receipt timestamps when historical hashes are absent. Identical
+consensus merges preserve the existing merged file and timestamp. Invalid modern
+checkpoints never fall back to legacy adoption, and a new attempt is recorded as
+`running` until successful validation. Discovery also skips database rebuilding
+when a usable cached RepeatModeler library is already available.
+
 ### Storage management for many genomes
 
 Use `drayte --config config.yaml --storage-mode compact` to remove validated

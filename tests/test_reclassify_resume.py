@@ -190,7 +190,7 @@ def test_successful_process_is_rejected_when_a_family_length_changes(
     else:
         raise AssertionError("A length-changing output should have been rejected")
 
-    assert not (tmp_path / "repeatclassifier.checkpoint.json").exists()
+    assert json.loads((tmp_path / "repeatclassifier.checkpoint.json").read_text())["status"] == "running"
 
 
 def test_completed_legacy_manifest_is_migrated(tmp_path, monkeypatch):
