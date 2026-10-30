@@ -350,6 +350,13 @@ checkpoints never fall back to legacy adoption, and a new attempt is recorded as
 `running` until successful validation. Discovery also skips database rebuilding
 when a usable cached RepeatModeler library is already available.
 
+If older retries already invalidated the legacy timestamps, a completed curated
+library and its family table may support one-time recovery. Preview with
+`python -m drayte.pipeline.reclassify_recovery --config config.yaml`; this does
+not run RepeatClassifier or modify output files. See
+[RepeatClassifier recovery](docs/repeatclassifier-recovery.md) for validation,
+backups, and the apply/resume procedure.
+
 ### Storage management for many genomes
 
 Use `drayte --config config.yaml --storage-mode compact` to remove validated

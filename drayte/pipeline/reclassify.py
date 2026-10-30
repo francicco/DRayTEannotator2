@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import uuid
 from pathlib import Path
@@ -313,17 +314,69 @@ def run_repeatclassifier(consensi_fa: Path, outdir: Path, repeatclassifier_bin: 
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=True,
     )
 
-    assert process.stdout is not None
-    for line in process.stdout:
-        line = line.rstrip()
-        if line:
-            logger.info("[reclassify] %s", line)
+    def stop_process_group():
+        # start_new_session makes the child's PID its process-group ID. Never
+        # discover/reuse the parent's group, which could signal unrelated jobs.
+        pid = getattr(process, "pid", None)
+        if type(pid) is not int or pid <= 1 or pid == os.getpgrp():
+            return  # Test doubles need not expose a real OS process.
 
-    rc = process.wait()
-    if rc != 0:
-        raise RuntimeError(f"RepeatClassifier failed with exit code {rc}")
+        def send(sig):
+            try:
+                os.killpg(pid, sig)
+                return True
+            except ProcessLookupError:
+                return False
+
+        send(signal.SIGTERM)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            send(signal.SIGKILL)
+            process.wait(timeout=10)
+        else:
+            # The Perl parent may exit before its search-engine descendants.
+            # A surviving group must not keep writing fixed temporary names
+            # after the pipeline's output lock has been released.
+            if send(0):
+                send(signal.SIGKILL)
+
+    try:
+        assert process.stdout is not None
+        for line in process.stdout:
+            line = line.rstrip()
+            if line:
+                logger.info("[reclassify] %s", line)
+
+        rc = process.wait()
+        if rc != 0:
+            raise RuntimeError(f"RepeatClassifier failed with exit code {rc}")
+    except BaseException:
+        # Ctrl-C/SystemExit must stop the complete group before outer cleanup
+        # releases the output lock. Keep the attempt record non-complete, and
+        # preserve the original exception even if process cleanup fails.
+        try:
+            stop_process_group()
+        except BaseException as error:
+            logger.warning("Could not fully stop RepeatClassifier process group: %s", error)
+            pid = getattr(process, "pid", None)
+            if type(pid) is int and pid > 1 and pid != os.getpgrp():
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                    process.wait(timeout=10)
+                except BaseException as cleanup_error:
+                    logger.warning("RepeatClassifier forced cleanup failed: %s", cleanup_error)
+        raise
+    finally:
+        close = getattr(process.stdout, "close", None)
+        if callable(close):
+            try:
+                close()
+            except BaseException as error:
+                logger.warning("Could not close RepeatClassifier output stream: %s", error)
 
     comparison = compare_classified_output(consensi_fa, expected)
     if not classified_output_has_complete_family_set(consensi_fa, expected):
