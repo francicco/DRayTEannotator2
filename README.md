@@ -360,7 +360,10 @@ backups, and the apply/resume procedure.
 ### Storage management for many genomes
 
 Use `drayte --config config.yaml --storage-mode compact` to remove validated
-completed-stage scratch and archive bulky evidence after a successful run.
+completed-stage scratch and archive bulky evidence. Completed extension scratch
+is compressed before classification, retaining the consensus, alignment, image,
+and REPAM files needed by downstream stages. Remaining evidence is archived after
+the whole run succeeds; unfinished extension work stays loose.
 The default remains `keep`. The equivalent YAML is `storage: {mode: compact}`.
 Core final libraries, RepeatMasker `.out/.tbl`, refined annotations, summaries,
 and completion manifests remain directly accessible. Per-family work, selected
@@ -379,6 +382,30 @@ inspection. After reinstalling the editable package, `drayte-storage` is an
 equivalent command. Full procedures, retained files, archive verification,
 locking, temporary quota headroom, and legacy checkpoint limits are documented
 in [Storage management](docs/storage-management.md).
+
+Existing EarlGrey output has a separate preview/cleanup command. It preserves
+all final summaries and libraries, the original RepeatModeler library needed
+by DrayTE, and raw RepeatMasker `.out/.tbl` for benchmarking:
+
+```bash
+python -m drayte.storage.earlgrey --root Avcr_Earlgrey
+# Only after that output directory is idle and the preview is eligible:
+python -m drayte.storage.earlgrey --root Avcr_Earlgrey --apply --idle
+```
+
+For future EarlGrey jobs, wrap the original command to restore before resuming
+and compact after successful completion:
+
+```bash
+python -m drayte.storage.earlgrey --root Avcr_Earlgrey --idle --run \
+  earlGrey -g genome.fa -s Avcr -o Avcr_Earlgrey -t 16
+```
+
+Keep the original EarlGrey arguments, including any library/HELIANO options.
+An existing native job does not hold the wrapper's lock: `--idle` asserts that
+no other job uses that output. Direct native EarlGrey calls require an explicit
+restore first. See [EarlGrey storage](docs/earlgrey-storage.md) for batch previews,
+restoration, completion checks, and limits.
 
 RepeatMasker's full stdout and stderr are saved to files rather than printed in
 the terminal or copied into `drayte.log`:

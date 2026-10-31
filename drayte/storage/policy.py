@@ -183,7 +183,8 @@ def plan_compaction(config, *, runtime_inputs_known=False):
     for category in ("DNA", "LINE", "SINE", "LTR", "RC", "Penelope", "Unclassified", "Unknown", "Other"):
         archive.append(f"family_inspection/{category}")
     plan = [{"operation": "archive", "path": rel}
-            for rel in archive if rel not in records and (root / rel).exists()]
+            for rel in archive if rel not in records and (root / rel).exists()
+            and not any(name.startswith(rel + "/") for name in records)]
     modeler = root / "discovery/rmodeler_dir"
     if modeler.is_dir():
         plan.extend({"operation": "delete_scratch", "path": str(path.relative_to(root))}
@@ -202,11 +203,130 @@ def plan_compaction(config, *, runtime_inputs_known=False):
     return plan
 
 
+def compact_completed_extension(config, result, logger):
+    """Archive extension scratch before classification, retaining its inputs.
+
+    A single archive avoids a catalog rewrite for every family. Failed/partial
+    extension stages keep all working files. Pipeline entry restores this full
+    archive before any resume check, including a requested extension rebuild.
+    """
+    if storage_mode(config) != "compact":
+        return []
+    from drayte.pipeline.extension import validate_extension_outputs, sha256_file
+    from drayte.pipeline.classification import selected_extensionwork_sha256
+    from drayte.extension.extract_align import safe_filename
+    import csv
+
+    root = config.outdir_path.resolve()
+    work = root / "extension/extensionwork"
+    final = root / "extension/final_consensuses"
+    valid, reason = validate_extension_outputs(result, work, final)
+    if not valid:
+        logger.info("Storage: extension evidence kept loose (%s)", reason)
+        return []
+    store = ArchiveStore(root)
+    relative = "extension/extensionwork"
+    if relative in store.records():
+        return []
+    report_path = root / ".storage/extension_report.json"
+    if report_path.is_symlink():
+        raise ValueError("Refusing a symlinked extension storage report")
+    inventory = store._inventory(relative)
+    members = {member["name"]: member for member in inventory}
+    # Classification fingerprints every immediate family's REPAM files,
+    # including legacy directories that are not listed in a newer summary.
+    retain = {member["name"] for member in inventory
+              if len(Path(member["name"]).parts) == 4
+              and Path(member["name"]).name in {"repam-ranges.tsv", "repam-repseq.fa"}}
+    with Path(result["summary_tsv"]).open() as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            family = safe_filename(row["te_id"])
+            directory = work / family
+            consensus = directory / f"{family}_rep.fa"
+            require_files([consensus])
+            if sha256_file(consensus) != sha256_file(final / f"{family}_rep.fa"):
+                raise ValueError(f"Cannot archive inconsistent extension consensus: {family}")
+            # Sources are needed if postprocessing repeats after a partial
+            # stage resume; normalized products and REPAM files are read by
+            # curation, classification and family inspection.
+            names = ("rep", "repseq.unextended", "MSA-extended_with_rmod_cons.fa",
+                     "MSA-extended.fa", "img.png", "repam-ranges.tsv", "repam-repseq.fa",
+                     f"{family}_rep.fa", f"{family}_MSA_extended.fa", f"{family}.png")
+            for name in names:
+                path = directory / name
+                if path.exists() or path.is_symlink():
+                    retain.add(path.relative_to(root).as_posix())
+
+    def protect(value):
+        if isinstance(value, dict):
+            for child in value.values():
+                protect(child)
+        elif isinstance(value, (tuple, list)):
+            for child in value:
+                protect(child)
+        elif isinstance(value, str) and value:
+            path = Path(value).expanduser().resolve()
+            if path == work or work in path.parents:
+                name = path.relative_to(root).as_posix()
+                if members.get(name, {}).get("type") != "file":
+                    raise ValueError(f"Cannot archive extension evidence referenced as a directory: {path}")
+                retain.add(name)
+
+    settings = dict(config.extra)
+    classification_settings = settings.get("classification")
+    if isinstance(classification_settings, dict):
+        classification_settings = dict(classification_settings)
+        repam = classification_settings.get("repam_extensionwork_dir")
+        if isinstance(repam, str) and Path(repam).expanduser().resolve() == work:
+            # This documented input only reads the two REPAM files retained
+            # above; explicitly setting the normal default is also supported.
+            classification_settings.pop("repam_extensionwork_dir")
+        settings["classification"] = classification_settings
+    protect(settings)
+    protect(str(config.genome_path))
+    # Keep locally linked files available to existing inspection bundles and
+    # any user-created links. Never traverse linked directories while scanning.
+    for directory, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = [name for name in dirs if name != ".storage"]
+        for name in dirs + files:
+            link = Path(directory) / name
+            if link.is_symlink() and work not in link.parents:
+                protect(str(link))
+    if any(members.get(name, {}).get("type") != "file" for name in retain):
+        raise ValueError("Required extension evidence must be regular files before compaction")
+    if not any(member["type"] == "file" and name not in retain for name, member in members.items()):
+        return []
+    before = selected_extensionwork_sha256(work)
+    usage_before = space_usage(root)
+    record = store.archive(relative, retain=retain)
+    if selected_extensionwork_sha256(work) != before:
+        raise RuntimeError("Extension classification evidence changed during compaction")
+    actions = [{"operation": "archive", "path": relative, "archive": record["archive"],
+                "retained_files": len(retain)}]
+    report = {"stage": "extension", "species": config.species,
+              "completed_at_utc": datetime.now(timezone.utc).isoformat(),
+              "before": usage_before, "after": space_usage(root), "actions": actions,
+              "extensionwork_sha256": before}
+    temporary = report_path.with_suffix(f".{uuid.uuid4().hex}.partial")
+    try:
+        with temporary.open("x") as handle:
+            json.dump(report, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, report_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    logger.info("Storage: archived completed extension scratch; retained %d files for downstream stages; allocated bytes %s -> %s",
+                len(retain), usage_before["allocated_bytes"], report["after"]["allocated_bytes"])
+    return actions
+
+
 def cleanup_stage_scratch(config, stage, logger):
     """Reduce peak storage only after the producing stage has succeeded.
 
-    Archive operations wait until full completion, since downstream stages still
-    need loose evidence. This function never removes evidence or checkpoints.
+    This function only removes disposable scratch. Extension's separate early
+    archive keeps downstream evidence loose; other archives wait for full completion.
     """
     if storage_mode(config) != "compact":
         return []
@@ -314,8 +434,13 @@ def compact_run(config, logger, *, runtime_inputs_known=False):
     if not plan:
         logger.info("Storage: no new compaction candidates")
         return {"actions": [], "archives": ArchiveStore(root).records()}
-    if ArchiveStore(root).records():
+    # Early extension archives deliberately retain all downstream inputs. Other
+    # existing archives must be restored before validating complete loose outputs.
+    existing = ArchiveStore(root).records()
+    if any(name != "extension/extensionwork" for name in existing):
         raise ValueError("Restore existing managed archives before compacting a partially compacted run")
+    for record in existing.values():
+        ArchiveStore(root)._verify_archive(record)
     validate_completed_run(config)
     targets = [root / item["path"] for item in plan if item["operation"] == "delete_scratch"]
     assert_safe_deletions(config, targets)

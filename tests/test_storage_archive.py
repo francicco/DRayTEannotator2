@@ -181,3 +181,40 @@ def test_restore_refuses_symlinked_parent(tmp_path):
     with pytest.raises(ValueError, match="ancestor"):
         store.restore_all()
     assert not list((tmp_path / "elsewhere").iterdir())
+
+
+def test_archive_retains_selected_inputs_and_restores_full_tree(tmp_path):
+    tree = make_tree(tmp_path)
+    scratch = tree / "family/intermediate.fa"
+    scratch.write_text("ACGT" * 20000)
+    store = ArchiveStore(tmp_path)
+    before = store._inventory("extension/extensionwork")
+    retained = "extension/extensionwork/family/repam-ranges.tsv"
+    store.archive("extension/extensionwork", retain=[retained])
+    assert (tmp_path / retained).is_file()
+    assert not scratch.exists()
+    assert not (tree / "family/repam-repseq.fa").exists()
+    store.restore_all()
+    assert store._inventory("extension/extensionwork") == before
+
+
+@pytest.mark.parametrize("retained", ["elsewhere", "extension/extensionwork/family", "../outside"])
+def test_invalid_retained_names_never_remove_originals(tmp_path, retained):
+    tree = make_tree(tmp_path)
+    store = ArchiveStore(tmp_path)
+    before = store._inventory("extension/extensionwork")
+    with pytest.raises(ValueError):
+        store.archive("extension/extensionwork", retain=[retained])
+    assert store._inventory("extension/extensionwork") == before
+    assert not store.records()
+
+
+def test_modified_retained_file_blocks_restore(tmp_path):
+    tree = make_tree(tmp_path)
+    store = ArchiveStore(tmp_path)
+    retained = "extension/extensionwork/family/repam-ranges.tsv"
+    store.archive("extension/extensionwork", retain=[retained])
+    (tmp_path / retained).write_text("changed\n")
+    with pytest.raises(ValueError, match="Conflicting"):
+        store.restore_all()
+    assert not (tree / "family/repam-repseq.fa").exists()

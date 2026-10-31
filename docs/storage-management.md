@@ -6,7 +6,7 @@ inode quota and make backups and directory scans expensive. Compact mode reduces
 both while preserving evidence needed to resume.
 
 The final delivery folder is not a measure of a pipeline's total footprint.
-For example, the supplied Hmel audit showed roughly 4 GiB across EarlGrey's full
+For example, the supplied Hmel directory listing showed 2.7 GiB across EarlGrey's full
 run tree even though a particular final folder can be small. Compare allocated
 bytes and file counts across the whole run, including retained work directories.
 
@@ -43,16 +43,23 @@ the repository.
    Configured inputs and retained symlinks pointing into a candidate prevent
    deletion. After completed HELIANO/classification, their MMseqs scratch can
    likewise be removed. These early removals reduce peak storage during a run.
+   Once extension completes with no failed families, archive its entire work
+   tree while retaining regular files needed by postprocessing, curation,
+   classification and inspection. This avoids carrying all extension scratch
+   through HELIANO, classification and final RepeatMasker. It does not reduce
+   the space needed while extension itself is running.
 4. After the **whole pipeline succeeds**, validate retained products, extension
    summaries, RepeatClassifier completion, classification biological hashes,
-   and RepeatMasker completion records. No evidence is compacted for an
-   incomplete run.
+   and RepeatMasker completion records, then archive the remaining bulky evidence.
+   An unfinished stage's evidence is kept loose; a completed extension stage
+   can be compacted while later stages are still unfinished.
 5. Create compressed archives, read them back and verify every file checksum,
    then commit the recovery catalog **before** removing the loose originals.
    Never remove originals merely because a compression command returned zero.
 6. Write `.storage/storage_report.json` with actions, archive locations, and
    before/after allocated-byte and file counts. Early scratch cleanup is logged
    in `.storage/scratch_actions.jsonl` and `drayte.log`.
+   Early extension savings are measured separately in `.storage/extension_report.json`.
 
 For existing runs compacted through the standalone command, original CLI-only
 inputs may be absent from the YAML. Scratch is therefore archived reversibly
@@ -75,6 +82,12 @@ resume explicitly.
 - Refined and filtered BED/GFF/TSV annotations and summaries.
 - Stage manifests, completed extension summary, final extension consensuses,
   and the cached extension-query FASTA under `extension/blastfiles`.
+- During execution, extension work retains normalized consensus/alignment/image
+  files, raw postprocessing sources (including `repseq.unextended`, which carries
+  hit counts), and `repam-ranges.tsv`/`repam-repseq.fa`. Configured file inputs and
+  files linked from elsewhere in the output tree are also retained. The full
+  original tree is recorded in its verified archive. A referenced directory or
+  symlinked required file blocks this early compaction instead of breaking it.
 - Merged Pfam/Dfam evidence and family classification/evidence tables.
 - Existing portable inspection `.tgz` deliverables from older runs. New compact
   runs avoid creating these duplicate dereferenced copies; managed archives
@@ -122,7 +135,8 @@ python -m pip install --no-deps --no-build-isolation -e .
 The CLI deliberately processes one configuration/output directory at a time.
 Preview each species before applying a batch. It only operates on DrayAnn2's
 own output tree; external EarlGrey results and externally supplied libraries
-are not compacted or removed.
+are not compacted or removed by this command. Use the separate explicit
+[EarlGrey storage command](earlgrey-storage.md) for EarlGrey trees.
 
 Old running jobs do not hold the new lock. The lock cannot prove that a legacy
 job, an external tool, or a person is not reading the directory. Confirm those

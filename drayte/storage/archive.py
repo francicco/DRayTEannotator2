@@ -240,9 +240,16 @@ class ArchiveStore:
         finally:
             os.close(descriptor)
 
-    def archive(self, relative: str | Path) -> dict:
-        """Verify a compressed archive, commit its record, then remove source."""
+    def archive(self, relative: str | Path, *, retain=()) -> dict:
+        """Archive a complete tree, optionally leaving selected regular files loose.
+
+        Retained names are relative to the store root. The full inventory stays
+        in the archive, so restoration also checks the retained files before
+        filling in missing scratch. This permits downstream readers to work
+        without expanding a completed family's temporary files.
+        """
         relative = self._relative(relative)
+        retain = {self._relative(name) for name in retain}
         source = self._path(relative)
         records = self.records()
         if relative in records:
@@ -255,6 +262,10 @@ class ArchiveStore:
             if name.startswith(relative + "/") or relative.startswith(name + "/"):
                 raise ValueError(f"Source overlaps an existing archive: {relative}")
         members = self._inventory(relative)
+        by_name = {member["name"]: member for member in members}
+        for name in retain:
+            if name not in by_name or by_name[name]["type"] != "file":
+                raise ValueError(f"Retained archive member must be a regular file: {name}")
         self.directory.mkdir(parents=True, exist_ok=True)
         self._check_ancestors(self.directory / "payload")
         filename = uuid.uuid4().hex + ".tar.gz"
@@ -299,7 +310,21 @@ class ArchiveStore:
             if not committed:
                 payload.unlink(missing_ok=True)
             raise
-        if source.is_dir():
+        if retain:
+            keep = set(retain)
+            for name in retain:
+                keep.update(parent.as_posix() for parent in PurePosixPath(name).parents)
+            # Delete from the verified inventory, deepest entries first. Never
+            # follow symlinks or recursively remove a retained parent directory.
+            for info in reversed(members):
+                if info["name"] in keep:
+                    continue
+                path = self._path(info["name"])
+                if info["type"] == "directory":
+                    path.rmdir()
+                else:
+                    path.unlink()
+        elif source.is_dir():
             if not shutil.rmtree.avoids_symlink_attacks:
                 raise RuntimeError("Python lacks symlink-resistant directory removal")
             shutil.rmtree(source)

@@ -23,7 +23,7 @@ from drayte.refinement.refine_repeatmasker import (
 )
 from drayte.reporting.SummaryFilesGen import run_summary_files
 from drayte.storage.archive import ArchiveStore
-from drayte.storage.policy import cleanup_stage_scratch, compact_run, output_lock, storage_mode
+from drayte.storage.policy import cleanup_stage_scratch, compact_completed_extension, compact_run, output_lock, storage_mode
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DRayTE pipeline runner")
@@ -254,6 +254,7 @@ def run_pipeline(config, config_file=None) -> None:
 	# Run Extention - Part 1
     extension_result = extension.run(config, discovery_result, logger)
     write_manifest(config.outdir_path / "extension", "extension", extension_result)
+    compact_completed_extension(config, extension_result, logger)
 
 	# Run Re-classify RepeatModeler libray using extentions - Part 2
     reclassify_result = reclassify.run(config, extension_result, logger)

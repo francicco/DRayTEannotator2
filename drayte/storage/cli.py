@@ -21,8 +21,8 @@ def main(argv=None):
     store = ArchiveStore(root)
     if not args.apply:
         plan = list(store.records()) if args.restore else plan_compaction(config)
-        validation = "restore preview" if args.restore else "already compacted" if store.records() else "not checked"
-        if not args.restore and not store.records():
+        validation = "restore preview" if args.restore else "already compacted" if store.records() and not plan else "not checked"
+        if not args.restore and (not store.records() or plan):
             try:
                 validate_completed_run(config)
                 validation = "completed outputs validated"

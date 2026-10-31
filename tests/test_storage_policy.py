@@ -9,7 +9,7 @@ from drayte.pipeline import classification, reclassify, runner
 from drayte.pipeline.config import PipelineConfig
 from drayte.storage.archive import ArchiveStore
 from drayte.storage.policy import (
-    assert_safe_deletions, cleanup_stage_scratch, compact_run, output_lock,
+    assert_safe_deletions, cleanup_stage_scratch, compact_completed_extension, compact_run, output_lock,
     plan_compaction, storage_mode, validate_completed_run,
 )
 from drayte.utils.repeatmasker_checkpoint import input_signature, write_checkpoint
@@ -280,3 +280,101 @@ def test_plan_does_not_mutate_completed_output(completed_run):
     assert not (root / ".storage").exists()
     assert any(item["path"] == "extension/extensionwork" for item in plan_compaction(completed_run))
     assert not (root / ".storage").exists()
+
+
+def prepare_early_extension(config):
+    root = config.outdir_path
+    work = root / "extension/extensionwork/fam1"
+    sequence = (root / "extension/final_consensuses/fam1_rep.fa").read_text()
+    (work / "fam1_rep.fa").write_text(sequence)
+    (work / "rep").write_text(sequence)
+    (work / "repseq.unextended").write_text(">copy1\nACGT\n" * 12)
+    (work / "MSA-extended_with_rmod_cons.fa").write_text(sequence)
+    (work / "img.png").write_bytes(b"image")
+    (work / "scratch.fa").write_text("ACGT" * 50000)
+    return read_extension_manifest(config), work
+
+
+def read_extension_manifest(config):
+    return json.loads((config.outdir_path / "extension/extension.manifest.json").read_text())
+
+
+def test_early_extension_compacts_before_final_stage_and_preserves_consumers(completed_run):
+    from drayte.extension.consensus import postprocess_extension_outputs
+
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    final_output = config.outdir_path / "final_annotation/Test.fa.out"
+    final_output.unlink()  # Whole pipeline is unfinished; extension is complete.
+    before = classification.selected_extensionwork_sha256(work.parent)
+    expected = postprocess_extension_outputs("fam1", work)[3:]
+    with output_lock(config.outdir_path):
+        actions = compact_completed_extension(config, result, logging.getLogger("test"))
+        assert actions
+        assert not (work / "scratch.fa").exists()
+        assert (work / "fam1_rep.fa").is_file()
+        assert (work / "repam-ranges.tsv").is_file()
+        assert classification.selected_extensionwork_sha256(work.parent) == before
+        assert postprocess_extension_outputs("fam1", work)[3:] == expected == (12, 4)
+        assert compact_completed_extension(config, result, logging.getLogger("test")) == []
+        ArchiveStore(config.outdir_path).restore_all()
+    assert (work / "scratch.fa").is_file()
+
+
+def test_final_compaction_accepts_early_extension_archive(completed_run):
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    with output_lock(config.outdir_path):
+        compact_completed_extension(config, result, logging.getLogger("test"))
+        validate_completed_run(config)
+        report = compact_run(config, logging.getLogger("test"))
+        assert report["actions"]
+        assert "extension/extensionwork" in report["archives"]
+        ArchiveStore(config.outdir_path).restore_all()
+        validate_completed_run(config)
+    assert (work / "scratch.fa").is_file()
+
+
+def test_incomplete_extension_keeps_every_file(completed_run):
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    result["n_failed"] = 1
+    assert compact_completed_extension(config, result, logging.getLogger("test")) == []
+    assert (work / "scratch.fa").is_file()
+    assert ArchiveStore(config.outdir_path).records() == {}
+
+
+def test_early_extension_preserves_external_consumers(completed_run):
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    linked = work / "extra_evidence.tsv"
+    linked.write_text("evidence\n")
+    (config.outdir_path / "linked.tsv").symlink_to(linked)
+    supplied = work / "custom_input.fa"
+    supplied.write_text(">f\nACGT\n")
+    config.extra["other_input"] = str(supplied)
+    compact_completed_extension(config, result, logging.getLogger("test"))
+    assert linked.is_file() and supplied.is_file()
+    assert not (work / "scratch.fa").exists()
+
+
+def test_early_extension_keeps_repam_from_unlisted_legacy_families(completed_run):
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    legacy = work.parent / "legacy-family"
+    legacy.mkdir()
+    (legacy / "repam-ranges.tsv").write_text("1\t4\n")
+    (legacy / "repam-repseq.fa").write_text(">old\nAAAA\n")
+    before = classification.selected_extensionwork_sha256(work.parent)
+    compact_completed_extension(config, result, logging.getLogger("test"))
+    assert classification.selected_extensionwork_sha256(work.parent) == before
+    assert (legacy / "repam-repseq.fa").is_file()
+
+
+def test_explicit_default_repam_directory_allows_early_compaction(completed_run):
+    config = completed_run
+    result, work = prepare_early_extension(config)
+    config.extra["classification"] = {"repam_extensionwork_dir": str(work.parent)}
+    compact_completed_extension(config, result, logging.getLogger("test"))
+    assert not (work / "scratch.fa").exists()
+    assert config.extra["classification"]["repam_extensionwork_dir"] == str(work.parent)
