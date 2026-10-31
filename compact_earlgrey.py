@@ -49,11 +49,16 @@ def _file_sha256(path: Path) -> str:
 
 
 def _present(path: Path) -> bool:
-    return path.exists() or path.is_symlink()
+    return path.is_symlink() or path.exists()
 
 
 class ArchiveStore:
-    """Archive files/trees below ``root`` and restore their original paths."""
+    """Archive local trees, preserving symbolic links as opaque metadata.
+
+    EarlGrey links external input genomes into its work directories. Their
+    targets are never opened, archived, modified or removed. Restoration only
+    recreates the original links at guarded paths within this output tree.
+    """
 
     def __init__(self, root: Path):
         self.root = Path(root).expanduser().absolute()
@@ -92,14 +97,12 @@ class ArchiveStore:
         return path
 
     def _check_link(self, name: str, target: str):
-        if not isinstance(target, str) or not target:
+        if not isinstance(target, str) or not target or "\x00" in target:
             raise ValueError(f"Invalid symlink target in archive: {name}")
-        link = self.root / name
-        try:
-            destination = (link.parent / target).resolve()
-            destination.relative_to(self.root.resolve())
-        except (ValueError, RuntimeError) as error:
-            raise ValueError(f"Symlink escapes archive root or loops: {name} -> {target}") from error
+        # The target is data, not a path to extract. Absolute, relative and
+        # dangling references are preserved exactly. Member names stay inside
+        # root, member descendants of links are rejected, and every destination
+        # ancestor is checked before writing. Never resolve/follow this target.
 
     def _inventory(self, relative: str) -> list[dict]:
         source = self._path(relative)

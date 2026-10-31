@@ -90,8 +90,15 @@ Only known bulky paths are archived: RepeatModeler `RM_*` scratch, strainer
 `TS_*` work, merge intermediates whose final BED/GFF exports match, landscape
 work, final RepeatMasker `.align`/`.masked`, and HLE1/HLE2 or MMseqs
 work beneath completed HELIANO runs. Unknown directories stay untouched.
-Retained links into a candidate block compaction. External symlinks in an
-archive source also block it. No new EarlGrey policy permanently discards data.
+Retained links into a candidate block compaction. Links within archived work,
+including native LtrFinder links to external input genomes, are stored as link
+metadata: the exact original target string is restored. Target files and
+directories are never opened, copied into the archive, modified or deleted.
+Absolute, relative and dangling links are preserved without following them.
+Archive members must stay inside the output tree; a symlink cannot act as the
+parent of another archive member or restoration destination. No new EarlGrey
+policy permanently discards data. External genomes remain separate inputs and
+must remain available at their original paths for future native tool runs.
 
 The command writes `.storage/earlgrey_report.json` in the inner run directory,
 with actual before/after allocated bytes and file counts. Verified compressed

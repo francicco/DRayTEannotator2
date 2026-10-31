@@ -1,10 +1,13 @@
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -197,6 +200,15 @@ def test_native_library_variants_require_matching_export(run_tree, variant, fail
 
 def test_single_copied_script_compacts_and_restores_without_installed_packages(run_tree, tmp_path):
     outer, inner, _ = run_tree
+    external = tmp_path / "original_genome.fa"
+    external.write_bytes(b">external-genome-never-archived\nTTAACCGG\n")
+    external.chmod(0o640)
+    os.utime(external, ns=(1_700_000_000_000_000_123, 1_700_000_000_000_000_123))
+    external_before = (external.read_bytes(), external.stat().st_mtime_ns,
+                       stat.S_IMODE(external.stat().st_mode))
+    link = inner / "Test_mergedRepeats/looseMerge/TestLtrFinder/genome.fa.prep"
+    link.parent.mkdir()
+    link.symlink_to(external)
     isolated = tmp_path / "independent_script"
     isolated.mkdir()
     copied = isolated / SCRIPT.name
@@ -225,14 +237,26 @@ def test_single_copied_script_compacts_and_restores_without_installed_packages(r
         if "summaryFiles/" in relative or "Database/" in relative or relative.endswith((".out", ".tbl", ".cat.gz", ".strained")):
             assert (inner / relative).read_bytes() == data
     catalog = json.loads((inner / ".storage/archives.json").read_text())
+    found_external_link = False
     for record in catalog["archives"].values():
         assert hashlib.sha256((inner / record["archive"]).read_bytes()).hexdigest() == record["archive_sha256"]
+        with tarfile.open(inner / record["archive"], "r:gz") as archive:
+            for member in archive:
+                if member.name == str(link.relative_to(inner)):
+                    found_external_link = True
+                    assert member.issym() and member.linkname == str(external)
+                elif member.isfile():
+                    assert external_before[0] not in archive.extractfile(member).read()
+    assert found_external_link
     assert run("--restore")["read_only"]
     restored = run("--restore", "--apply", "--idle")
     assert restored["restored"]
     for relative, data in before.items():
         assert (inner / relative).read_bytes() == data
         assert (inner / relative).stat().st_mtime_ns == mtimes[relative]
+    assert link.is_symlink() and os.readlink(link) == str(external)
+    assert (external.read_bytes(), external.stat().st_mtime_ns,
+            stat.S_IMODE(external.stat().st_mode)) == external_before
     assert not list((inner / ".storage/archives").iterdir())
 
 
@@ -317,15 +341,154 @@ def test_symlinks_into_archives_block_before_any_changes(run_tree):
     assert tree_files(inner) == before
 
 
-def test_outside_symlink_in_later_candidate_blocks_all_archives(run_tree, tmp_path):
+def test_outside_symlink_is_preserved_without_archiving_or_modifying_target(run_tree, tmp_path, monkeypatch):
     _, inner, _ = run_tree
     external = tmp_path / "external"
-    external.write_text("external")
-    (inner / "Test_RepeatLandscape/outside").symlink_to(external)
-    with pytest.raises(ValueError, match="escapes archive root"):
+    external.write_bytes(b"external-content-must-not-be-archived\n")
+    external.chmod(0o640)
+    os.utime(external, ns=(1_700_000_000_000_000_123, 1_700_000_000_000_000_123))
+    before = (external.read_bytes(), external.stat().st_mtime_ns,
+              stat.S_IMODE(external.stat().st_mode))
+    link = inner / "Test_RepeatLandscape/outside"
+    link.symlink_to(external)
+    real_open = Path.open
+
+    def guarded_open(path, *args, **kwargs):
+        if path == external or path == link:
+            pytest.fail("Compaction opened an external symlink target")
+        return real_open(path, *args, **kwargs)
+
+    with monkeypatch.context() as guard:
+        guard.setattr(Path, "open", guarded_open)
+        assert earlgrey.preview(inner, "Test")["eligible"]
+        with output_lock(inner):
+            earlgrey.compact(inner, "Test")
+            record = earlgrey.ArchiveStore(inner).records()["Test_RepeatLandscape"]
+            linked = next(member for member in record["members"] if member["name"] == str(link.relative_to(inner)))
+            assert linked["type"] == "symlink" and linked["linkname"] == str(external)
+            assert "size" not in linked and "sha256" not in linked
+            with tarfile.open(inner / record["archive"], "r:gz") as archive:
+                for member in archive:
+                    if member.isfile():
+                        assert before[0] not in archive.extractfile(member).read()
+            earlgrey.ArchiveStore(inner).restore_all()
+    assert link.is_symlink() and os.readlink(link) == str(external)
+    assert (external.read_bytes(), external.stat().st_mtime_ns,
+            stat.S_IMODE(external.stat().st_mode)) == before
+
+
+def test_external_directory_symlink_never_traverses_target(run_tree, tmp_path):
+    _, inner, _ = run_tree
+    external = tmp_path / "external_directory"
+    external.mkdir()
+    content = external / "genome.fa"
+    content.write_text(">external-directory-never-read\nACGT\n")
+    before = (content.read_bytes(), content.stat().st_mtime_ns, content.stat().st_mode,
+              external.stat().st_mtime_ns, external.stat().st_mode)
+    link = inner / "Test_RepeatLandscape/external_directory"
+    link.symlink_to(external, target_is_directory=True)
+    assert earlgrey.preview(inner, "Test")["eligible"]
+    with output_lock(inner):
         earlgrey.compact(inner, "Test")
-    assert (inner / "Test_RepeatModeler/RM_old").is_dir()
-    assert not (inner / ".storage").exists()
+        record = earlgrey.ArchiveStore(inner).records()["Test_RepeatLandscape"]
+        names = [member["name"] for member in record["members"]]
+        assert str(link.relative_to(inner)) in names
+        assert not any(name.endswith("external_directory/genome.fa") for name in names)
+        with tarfile.open(inner / record["archive"], "r:gz") as archive:
+            linked = archive.getmember(str(link.relative_to(inner)))
+            assert linked.issym() and linked.linkname == str(external)
+        earlgrey.ArchiveStore(inner).restore_all()
+    assert link.is_symlink() and os.readlink(link) == str(external)
+    assert (content.read_bytes(), content.stat().st_mtime_ns, content.stat().st_mode,
+            external.stat().st_mtime_ns, external.stat().st_mode) == before
+
+
+def test_dangling_relative_and_loop_links_are_opaque_metadata(run_tree):
+    _, inner, _ = run_tree
+    directory = inner / "Test_RepeatLandscape"
+    targets = {"relative": "landscape.dat", "dangling": "../missing.fa", "loop": "loop"}
+    for name, target in targets.items():
+        (directory / name).symlink_to(target)
+    assert earlgrey.preview(inner, "Test")["eligible"]
+    with output_lock(inner):
+        earlgrey.compact(inner, "Test")
+        record = earlgrey.ArchiveStore(inner).records()["Test_RepeatLandscape"]
+        members = {Path(member["name"]).name: member for member in record["members"]}
+        for name, target in targets.items():
+            assert members[name]["type"] == "symlink" and members[name]["linkname"] == target
+        earlgrey.ArchiveStore(inner).restore_all()
+    for name, target in targets.items():
+        assert (directory / name).is_symlink()
+        assert os.readlink(directory / name) == target
+
+
+def rewrite_managed_tar(store, record, extra_member=None, replace_member=None):
+    payload = store.root / record["archive"]
+    with tarfile.open(payload, "r:gz") as archive:
+        entries = [(member, archive.extractfile(member).read() if member.isfile() else None)
+                   for member in archive]
+    with tarfile.open(payload, "w:gz") as archive:
+        for member, data in entries:
+            if replace_member is not None and member.name == replace_member.name:
+                member, data = replace_member, None
+            archive.addfile(member, io.BytesIO(data) if data is not None else None)
+        if extra_member is not None:
+            archive.addfile(extra_member, io.BytesIO(b"malicious"))
+    catalog = json.loads(store.manifest.read_text())
+    for saved in catalog["archives"].values():
+        if saved["archive"] == record["archive"]:
+            saved["archive_sha256"] = hashlib.sha256(payload.read_bytes()).hexdigest()
+    store.manifest.write_text(json.dumps(catalog))
+
+
+def test_malicious_member_beneath_external_symlink_is_rejected_before_writes(run_tree, tmp_path):
+    _, inner, _ = run_tree
+    relative = "Test_RepeatLandscape"
+    external = tmp_path / "external_target"
+    external.mkdir()
+    (inner / relative / "jump").symlink_to(external, target_is_directory=True)
+    store = earlgrey.ArchiveStore(inner)
+    with output_lock(inner):
+        record = store.archive(relative)
+        attack = tarfile.TarInfo(relative + "/jump/evil.txt")
+        attack.size = len(b"malicious")
+        rewrite_managed_tar(store, record, extra_member=attack)
+        catalog = json.loads(store.manifest.read_text())
+        catalog["archives"][relative]["members"].append({
+            "name": attack.name, "type": "file", "size": attack.size,
+            "sha256": hashlib.sha256(b"malicious").hexdigest(), "mode": 0o644,
+            "mtime_ns": 1_700_000_000_000_000_000,
+        })
+        store.manifest.write_text(json.dumps(catalog))
+        with pytest.raises(ValueError, match="non-directory parent"):
+            store.restore_all()
+    assert not list(external.iterdir())
+    assert not (inner / relative).exists()
+
+
+@pytest.mark.parametrize("attack_type", ["traversal", "hardlink"])
+def test_standalone_restore_rejects_tar_traversal_and_hardlinks(run_tree, tmp_path, attack_type):
+    _, inner, _ = run_tree
+    relative = "Test_RepeatLandscape"
+    store = earlgrey.ArchiveStore(inner)
+    external = inner.parent / "outside_target"
+    external.write_bytes(b"preserve external target\n")
+    before = (external.read_bytes(), external.stat().st_mtime_ns, external.stat().st_mode)
+    with output_lock(inner):
+        record = store.archive(relative)
+        if attack_type == "traversal":
+            attack = tarfile.TarInfo("../outside_target")
+            attack.size = len(b"malicious")
+            rewrite_managed_tar(store, record, extra_member=attack)
+        else:
+            attack = tarfile.TarInfo(relative + "/landscape.dat")
+            attack.type = tarfile.LNKTYPE
+            attack.linkname = str(external)
+            rewrite_managed_tar(store, record, replace_member=attack)
+        with pytest.raises(ValueError):
+            store.restore_all()
+    assert not (inner / relative).exists()
+    assert (external.read_bytes(), external.stat().st_mtime_ns, external.stat().st_mode) == before
 
 
 def test_cli_apply_requires_idle_confirmation_and_lock(run_tree, capsys):
