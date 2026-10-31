@@ -196,7 +196,8 @@ def build_evidence_string(f):
             f"{f.dfam_superfamily}:{f.dfam_score}"
         )
 
-    if f.rescue_superfamily not in {"", "NA", "Unknown", None}:
+    if (f.rescue_order not in {"", "NA", "Unknown", None}
+            or f.rescue_superfamily not in {"", "NA", "Unknown", None}):
         evidence.append(
             f"rescue={f.rescue_target}:{f.rescue_order}:"
             f"{f.rescue_superfamily}:"

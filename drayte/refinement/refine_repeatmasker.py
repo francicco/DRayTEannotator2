@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 from statistics import mean
 import argparse
@@ -11,6 +12,14 @@ from pathlib import Path
 
 
 REFINEMENT_ALGORITHM_VERSION = 2
+
+
+def repeatmasker_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 # ---------------------------------------------------------------------
@@ -1249,6 +1258,7 @@ def refine_repeatmasker(
     outdir.mkdir(parents=True, exist_ok=True)
 
     # 1. Parse raw RepeatMasker hits
+    input_sha256 = repeatmasker_sha256(rmout)
     hits = parse_repeatmasker_out(rmout, logger=logger)
 
     # 2. Mark fully nested hits
@@ -1339,6 +1349,8 @@ def refine_repeatmasker(
     # 8. Return metadata for manifest/reporting
     result = {
         "refinement_algorithm_version": REFINEMENT_ALGORITHM_VERSION,
+        "repeatmasker_input": str(rmout.resolve()),
+        "repeatmasker_input_sha256": input_sha256,
         **params,
         **stats,
         "refined_gff": str(refined_gff),
@@ -1353,6 +1365,8 @@ def refine_repeatmasker(
         "filtered_tsv": str(filtered_tsv) if resolve_overlaps else None,
     }
     
+    if repeatmasker_sha256(rmout) != input_sha256:
+        raise RuntimeError("RepeatMasker input changed during refinement; completion was not recorded")
     write_manifest(manifest_json, result)
   
     logger.info("Refinement complete:")

@@ -315,12 +315,15 @@ is used. It selects classification evidence; it does not add the reference
 sequences directly to the final annotation library. The same option is also
 available on the standalone `drayte-classify` command.
 
-The existing rescue algorithm requires reciprocal matches, but its automatic
-MMseqs search generates only the discovered-library-to-reference direction.
-For external references with distinct family identifiers, those matches will
-not yield rescued classifications until the reciprocal-search handling is
-corrected. The flag exposes the configuration option; it does not fix that
-algorithmic limitation.
+External-reference rescue runs both query-to-reference and reference-to-query
+searches, then transfers labels only from matching reciprocal best hits.
+Query and reference identifiers remain separate, and reference sequences are
+never added to the output family set. The search cache fingerprints both FASTAs
+by content, parameters and algorithm version; older forward-only results are
+regenerated. Logs distinguish alignments, reciprocal pairs, families with rescue
+evidence and classification labels actually changed by that evidence. See
+[Reference-assisted classification](docs/mmseqs-reference-rescue.md) for outputs,
+thresholds, interpretation and resuming an older assisted run.
 
 Rerunning the same command against the same output directory automatically
 resumes the analysis. A stage is skipped only after its manifest and required

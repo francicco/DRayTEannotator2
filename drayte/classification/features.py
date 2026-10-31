@@ -11,7 +11,7 @@ from .domainmap import normalize_domains
 from .hmmer import DomainHit
 from .homology import homology_from_repeatmasker_header
 from .ids import clean_family_id
-from .mmseqs import MMseqsHit, infer_rescue_evidence
+from .mmseqs import MMseqsHit, RescueEvidence, infer_rescue_evidence
 from .models import Family
 from .orfs import extract_orf_calls_by_family
 from .parsers.repeatmasker import parse_repeatmasker_header
@@ -98,6 +98,7 @@ def build_families_from_evidence(
     structure_evidence: list[StructureEvidence] | None = None,
     min_orf_nt: int = 500,
     include_reverse_orfs: bool = True,
+    mmseqs_rescue_evidence: dict[str, RescueEvidence] | None = None,
 ) -> list[Family]:
     lengths = consensus_lengths(consensus_fasta)
     raw_ids = raw_ids_by_clean_id(consensus_fasta)
@@ -118,7 +119,16 @@ def build_families_from_evidence(
 
     domain_summary = summarize_domains_by_family(domain_hits or [])
     best_dfam = best_dfam_hits_by_family(dfam_hits or [])
-    rescue_summary = infer_rescue_evidence(mmseqs_hits or [])
+    if mmseqs_rescue_evidence is None:
+        rescue_summary = infer_rescue_evidence(mmseqs_hits or [])
+    else:
+        # External reciprocal searches already validated directionality. Never
+        # reapply the legacy within-library reciprocal test to forward hits,
+        # or introduce reference-only families into the output universe.
+        unexpected = set(mmseqs_rescue_evidence) - set(lengths)
+        if unexpected:
+            raise ValueError("External rescue contains non-query families: " + ", ".join(sorted(unexpected)))
+        rescue_summary = mmseqs_rescue_evidence
     structure_summary = summarize_structure_evidence(structure_evidence or [])
 
     tsd_summary = {}

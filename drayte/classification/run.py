@@ -1,4 +1,5 @@
 import argparse
+from dataclasses import replace
 
 from pathlib import Path
 from .classify import classify_family
@@ -15,7 +16,7 @@ from .dfam import (
 )
 from .mmseqs import (
     parse_mmseqs_tsv,
-    run_mmseqs_rescue,
+    run_reciprocal_mmseqs_rescue,
     sequence_lengths_by_clean_id,
 )
 
@@ -45,6 +46,36 @@ def classify_families(families):
         })
 
     return results
+
+
+def summarize_rescue_impact(families, results):
+    """Count label changes caused by rescue while holding other evidence fixed.
+
+    This describes the classifier's decisions, not biological accuracy. It
+    does not modify the evidence objects or the results being written.
+    """
+    by_id = {row["family_id"]: row for row in results}
+    supported = changed = previously_unknown = 0
+    for family in families:
+        if not family.rescue_target or family.rescue_order in {"", "Unknown", None}:
+            continue
+        supported += 1
+        without_rescue = replace(
+            family, rescue_class="Unknown", rescue_order="Unknown",
+            rescue_superfamily="Unknown", rescue_identity=0.0, rescue_aln_len=0,
+            rescue_bits=0.0, rescue_target="",
+        )
+        baseline = classify_family(without_rescue)
+        actual = by_id[family.family_id]
+        if any(actual[key] != baseline[key] for key in ("class", "order", "superfamily")):
+            changed += 1
+            if baseline["class"] == "Unknown" and actual["class"] != "Unknown":
+                previously_unknown += 1
+    return {
+        "families_with_rescue_evidence": supported,
+        "classifications_changed_by_rescue": changed,
+        "previously_unknown_rescued": previously_unknown,
+    }
 
 
 def main():
@@ -209,6 +240,13 @@ def main():
         help="Number of CPUs for hmmscan/nhmmer/MMseqs steps",
     )
     args = parser.parse_args()
+    if args.mmseqs_rescue_db and args.mmseqs_rescue_tsv:
+        parser.error(
+            "Use --mmseqs-rescue-db for a validated bidirectional search, or "
+            "--mmseqs-rescue-tsv for legacy within-library evidence; do not combine them"
+        )
+    if args.input and args.mmseqs_rescue_db:
+        parser.error("--mmseqs-rescue-db requires --fasta, not --input")
 
     def require_db_for_missing_cache(
         evidence_name: str,
@@ -386,7 +424,37 @@ def main():
             else default_mmseqs_tsv
         )
 
-        if mmseqs_tsv.exists():
+        mmseqs_rescue_evidence = None
+        if args.mmseqs_rescue_db:
+            reference = Path(args.mmseqs_rescue_db).expanduser().resolve()
+            log_step(f"MMseqs reference rescue: query={Path(args.fasta).resolve()}, reference={reference}")
+            external_rescue = run_reciprocal_mmseqs_rescue(
+                query_fasta=args.fasta,
+                reference_fasta=reference,
+                outdir=args.mmseqs_outdir,
+                mmseqs_bin=args.mmseqs_bin,
+                threads=args.cpu,
+                min_identity=0.80,
+                min_aln_len=500,
+                min_query_cov=0.40,
+                min_target_cov=0.30,
+            )
+            mmseqs_hits = external_rescue.reciprocal_hits
+            mmseqs_rescue_evidence = external_rescue.evidence
+            log_step(
+                "MMseqs reference rescue: "
+                f"forward_alignments={len(external_rescue.forward_hits)}, "
+                f"reverse_alignments={len(external_rescue.reverse_hits)}, "
+                f"reciprocal_pairs={len(external_rescue.reciprocal_hits)}, "
+                f"families_with_rescue_evidence={len(external_rescue.evidence)}, "
+                f"cache_reused={external_rescue.report.get('cache_reused', False)}"
+            )
+            log_step(
+                "MMseqs reference rescue report: "
+                f"{Path(args.mmseqs_outdir) / 'mmseqs_rescue.report.json'}"
+            )
+
+        elif mmseqs_tsv.exists():
             log_step(
                 f"Parsing cached MMseqs rescue TSV: {mmseqs_tsv}"
             )
@@ -411,42 +479,6 @@ def main():
                 f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering"
             )
 
-        elif args.mmseqs_rescue_db:
-            log_step(
-                f"No cached MMseqs rescue TSV found at {mmseqs_tsv}"
-            )
-
-            log_step(
-                f"Running MMseqs rescue search against "
-                f"{args.mmseqs_rescue_db}"
-            )
-
-            generated_tsv = run_mmseqs_rescue(
-                query_fasta=args.fasta,
-                reference_fasta=args.mmseqs_rescue_db,
-                outdir=args.mmseqs_outdir,
-                mmseqs_bin=args.mmseqs_bin,
-                threads=args.cpu,
-            )
-
-            target_lengths = sequence_lengths_by_clean_id(
-                args.mmseqs_rescue_db
-            )
-
-            mmseqs_hits = parse_mmseqs_tsv(
-                generated_tsv,
-                query_lengths=query_lengths,
-                target_lengths=target_lengths,
-                min_identity=0.80,
-                min_aln_len=500,
-                min_query_cov=0.40,
-                min_target_cov=0.30,
-            )
-
-            log_step(
-                f"Parsed {len(mmseqs_hits)} MMseqs rescue hits after filtering"
-            )
-
         else:
             log_step("No MMseqs rescue evidence provided")
             mmseqs_hits = []
@@ -457,6 +489,7 @@ def main():
             domain_hits=domain_hits,
             dfam_hits=dfam_hits,
             mmseqs_hits=mmseqs_hits,
+            mmseqs_rescue_evidence=mmseqs_rescue_evidence,
             structure_evidence=structure_evidence,
             min_orf_nt=args.min_orf_nt,
             include_reverse_orfs=not args.forward_only,
@@ -465,6 +498,11 @@ def main():
 
     log_step("Classifying families")
     results = classify_families(families)
+    rescue_impact = summarize_rescue_impact(families, results)
+    log_step(
+        "MMseqs rescue classification impact: "
+        + ", ".join(f"{key}={value}" for key, value in rescue_impact.items())
+    )
 
     n_unknown = sum(
         1 for r in results

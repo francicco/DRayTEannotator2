@@ -11,7 +11,7 @@ from drayte.classification.features import (
     build_families_from_evidence,
     consensus_lengths,
 )
-from drayte.classification.run import classify_families
+from drayte.classification.run import classify_families, summarize_rescue_impact
 from drayte.classification.io import (
     write_classification_tsv,
     write_evidence_tsv,
@@ -38,8 +38,9 @@ from drayte.classification.dfam import (
     run_nhmmer_parallel_chunks,
 )
 from drayte.classification.mmseqs import (
+    EXTERNAL_RESCUE_ALGORITHM_VERSION,
     parse_mmseqs_tsv,
-    run_mmseqs_rescue,
+    run_reciprocal_mmseqs_rescue,
     sequence_lengths_by_clean_id,
 )
 from drayte.classification.write_library import rewrite_fasta_headers
@@ -149,7 +150,7 @@ def classification_input_signature(
     legacy_config_sha256 = hashlib.sha256(
         json.dumps(legacy_result_config, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
-    return {
+    signature = {
         "schema_version": CLASSIFICATION_SIGNATURE_SCHEMA_VERSION,
         "stage_name": stage_name,
         "final_mode": final_mode,
@@ -165,6 +166,13 @@ def classification_input_signature(
         ),
         "execution_config": execution_config,
     }
+    reference = classification_cfg.get("mmseqs_rescue_db")
+    if reference:
+        reference = Path(reference).expanduser().resolve()
+        validate_file(reference, "MMseqs rescue reference FASTA")
+        signature["mmseqs_reference_sha256"] = sha256_file(reference)
+        signature["mmseqs_rescue_algorithm_version"] = EXTERNAL_RESCUE_ALGORITHM_VERSION
+    return signature
 
 
 def classification_signatures_compatible(
@@ -187,6 +195,12 @@ def classification_signatures_compatible(
     match. All other result-affecting settings remain part of the comparison.
     """
     if any(cached.get(key) != current.get(key) for key in CLASSIFICATION_CORE_SIGNATURE_KEYS):
+        return False, False
+    # Old broken external runs did not record this digest. They are rebuilt,
+    # never adopted, by external_rescue_is_current() below. Once a digest is
+    # recorded, replacing the reference in place is a biological input change.
+    if (cached.get("mmseqs_reference_sha256") is not None
+            and cached.get("mmseqs_reference_sha256") != current.get("mmseqs_reference_sha256")):
         return False, False
 
     cached_version = cached.get("schema_version", 1)
@@ -213,6 +227,9 @@ def classification_signature_mismatch_details(cached: dict, current: dict) -> st
         key for key in CLASSIFICATION_CORE_SIGNATURE_KEYS
         if cached.get(key) != current.get(key)
     ]
+    if (cached.get("mmseqs_reference_sha256") is not None
+            and cached.get("mmseqs_reference_sha256") != current.get("mmseqs_reference_sha256")):
+        differences.append("classification.mmseqs_rescue_db contents")
     cached_config = cached.get("result_config")
     current_config = current.get("result_config")
     if isinstance(cached_config, dict) and isinstance(current_config, dict):
@@ -232,6 +249,17 @@ def classification_signature_mismatch_details(cached: dict, current: dict) -> st
     if cached.get("schema_version", 1) not in (1, 2, CLASSIFICATION_SIGNATURE_SCHEMA_VERSION):
         differences.append(f"unsupported signature schema {cached['schema_version']!r}")
     return ", ".join(differences) or "classification configuration fingerprint"
+
+
+def external_rescue_is_current(result: dict, signature: dict) -> bool:
+    if "mmseqs_reference_sha256" not in signature:
+        return True
+    evidence = result.get("mmseqs_reciprocal_rescue")
+    return isinstance(evidence, dict) and all((
+        evidence.get("algorithm_version") == EXTERNAL_RESCUE_ALGORITHM_VERSION,
+        evidence.get("query_sha256") == signature["structure_library_sha256"],
+        evidence.get("reference_sha256") == signature["mmseqs_reference_sha256"],
+    ))
 
 
 def manifest_outputs_are_valid(result: dict) -> bool:
@@ -381,7 +409,10 @@ def run(
                         "directory aside, or use a new outdir, before restarting."
                     )
 
-            if manifest_outputs_are_valid(cached_result):
+            rescue_current = external_rescue_is_current(cached_result, input_signature)
+            if not rescue_current:
+                logger.warning("Refreshing external-reference rescue and classification: saved results lack current reciprocal-search provenance; retaining compatible Pfam/Dfam and structure caches")
+            if manifest_outputs_are_valid(cached_result) and rescue_current:
                 if legacy_signature_migration:
                     logger.warning(
                         "Migrating classification checkpoint to signature schema %d "
@@ -592,10 +623,37 @@ def run(
     mmseqs_outdir = ensure_dir(outdir / "mmseqs")
     mmseqs_tsv = mmseqs_outdir / "mmseqs_rescue.tsv"
     mmseqs_rescue_db = classification_cfg.get("mmseqs_rescue_db")
+    mmseqs_rescue_evidence = None
+    reciprocal_report = None
 
     query_lengths = sequence_lengths_by_clean_id(library)
 
-    if mmseqs_tsv.exists() and mmseqs_tsv.stat().st_size > 0:
+    if mmseqs_rescue_db:
+        logger.info("MMseqs rescue reference: %s (SHA256 %s)", mmseqs_rescue_db,
+                    input_signature["mmseqs_reference_sha256"])
+        external = run_reciprocal_mmseqs_rescue(
+            query_fasta=structure_library,
+            reference_fasta=mmseqs_rescue_db,
+            outdir=mmseqs_outdir,
+            mmseqs_bin=classification_cfg.get("mmseqs_bin", "mmseqs"),
+            threads=config.threads,
+            min_identity=float(classification_cfg.get("mmseqs_min_identity", 0.80)),
+            min_aln_len=int(classification_cfg.get("mmseqs_min_aln_len", 500)),
+            min_query_cov=float(classification_cfg.get("mmseqs_min_query_cov", 0.40)),
+            min_target_cov=float(classification_cfg.get("mmseqs_min_target_cov", 0.30)),
+            logger=logger,
+        )
+        if (external.report["query_sha256"] != input_signature["structure_library_sha256"]
+                or external.report["reference_sha256"] != input_signature["mmseqs_reference_sha256"]):
+            raise RuntimeError("Classification query or rescue reference changed after stage input validation; no classification completion was recorded")
+        mmseqs_hits = external.reciprocal_hits
+        mmseqs_rescue_evidence = external.evidence
+        reciprocal_report = external.report
+        logger.info("MMseqs rescue: %d forward alignments; %d reverse alignments; %d reciprocal pairs; %d query families with rescue evidence",
+                    len(external.forward_hits), len(external.reverse_hits),
+                    len(external.reciprocal_hits), len(external.evidence))
+
+    elif mmseqs_tsv.exists() and mmseqs_tsv.stat().st_size > 0:
         logger.info("Parsing cached MMseqs rescue TSV: %s", mmseqs_tsv)
 
         target_lengths = sequence_lengths_by_clean_id(
@@ -604,29 +662,6 @@ def run(
 
         mmseqs_hits = parse_mmseqs_tsv(
             mmseqs_tsv,
-            query_lengths=query_lengths,
-            target_lengths=target_lengths,
-            min_identity=float(classification_cfg.get("mmseqs_min_identity", 0.80)),
-            min_aln_len=int(classification_cfg.get("mmseqs_min_aln_len", 500)),
-            min_query_cov=float(classification_cfg.get("mmseqs_min_query_cov", 0.40)),
-            min_target_cov=float(classification_cfg.get("mmseqs_min_target_cov", 0.30)),
-        )
-
-    elif mmseqs_rescue_db:
-        logger.info("Running MMseqs rescue search against %s", mmseqs_rescue_db)
-
-        generated_tsv = run_mmseqs_rescue(
-            query_fasta=library,
-            reference_fasta=mmseqs_rescue_db,
-            outdir=mmseqs_outdir,
-            mmseqs_bin=classification_cfg.get("mmseqs_bin", "mmseqs"),
-            threads=config.threads,
-        )
-
-        target_lengths = sequence_lengths_by_clean_id(mmseqs_rescue_db)
-
-        mmseqs_hits = parse_mmseqs_tsv(
-            generated_tsv,
             query_lengths=query_lengths,
             target_lengths=target_lengths,
             min_identity=float(classification_cfg.get("mmseqs_min_identity", 0.80)),
@@ -655,11 +690,17 @@ def run(
         min_orf_nt=min_orf_nt,
         include_reverse_orfs=not forward_only,
         mmseqs_hits=mmseqs_hits,
+        mmseqs_rescue_evidence=mmseqs_rescue_evidence,
     )
 
     logger.info("Built evidence objects for %d families", len(families))
 
     results = classify_families(families)
+    rescue_impact = summarize_rescue_impact(families, results)
+    if reciprocal_report is not None:
+        logger.info("MMseqs classification impact: %d final family labels changed; %d previously Unknown families rescued",
+                    rescue_impact["classifications_changed_by_rescue"],
+                    rescue_impact["previously_unknown_rescued"])
 
     #
     # Non-autonomous candidate inference
@@ -726,6 +767,10 @@ def run(
         "n_unknown": unknown,
         "input_signature": input_signature,
     }
+    if reciprocal_report is not None:
+        result["mmseqs_reciprocal_rescue"] = reciprocal_report
+        result["mmseqs_rescue_impact"] = rescue_impact
+        result["mmseqs_rescue_report"] = reciprocal_report["report_path"]
 
     write_json(manifest, result)
 

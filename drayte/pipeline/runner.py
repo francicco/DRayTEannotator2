@@ -67,6 +67,7 @@ def refinement_checkpoint_is_current(
     required_outputs: list[Path],
     manifest_path: Path,
     expected_parameters: dict,
+    rmout: Path | None = None,
 ) -> bool:
     if not all(path.exists() and path.stat().st_size > 0 for path in required_outputs):
         return False
@@ -80,6 +81,12 @@ def refinement_checkpoint_is_current(
 
     if cached.get("refinement_algorithm_version") != REFINEMENT_ALGORITHM_VERSION:
         return False
+
+    if rmout is not None:
+        if not rmout.is_file() or not cached.get("repeatmasker_input_sha256"):
+            return False
+        if cached["repeatmasker_input_sha256"] != classification.sha256_file(rmout):
+            return False
 
     return all(cached.get(key) == value for key, value in expected_parameters.items())
 
@@ -115,6 +122,7 @@ def log_final_results(
             ("Family classifications", "classifications_tsv"),
             ("Classification evidence", "evidence_tsv"),
             ("Non-autonomous candidates", "nonauto_candidates_tsv"),
+            ("Reference rescue report", "mmseqs_rescue_report"),
         ],
     )
     logger.info(
@@ -123,6 +131,14 @@ def log_final_results(
         classification_result.get("n_classified", "unavailable"),
         classification_result.get("n_unknown", "unavailable"),
     )
+    rescue = classification_result.get("mmseqs_reciprocal_rescue")
+    impact = classification_result.get("mmseqs_rescue_impact")
+    if isinstance(rescue, dict) and isinstance(impact, dict):
+        logger.info("  Rescue reference: %s", rescue.get("reference_fasta", "unavailable"))
+        logger.info("  Reference evidence: %s families; %s final labels changed; %s previously Unknown rescued",
+                    impact.get("families_with_rescue_evidence", 0),
+                    impact.get("classifications_changed_by_rescue", 0),
+                    impact.get("previously_unknown_rescued", 0))
 
     log_section(
         "2. FINAL REPEATMASKER GENOME ANNOTATION",
@@ -356,6 +372,7 @@ def run_pipeline(config, config_file=None) -> None:
         required_outputs=[refined_tsv, filtered_tsv, stats_tsv],
         manifest_path=refinement_manifest,
         expected_parameters=refinement_parameters,
+        rmout=Path(final_annotation_result["repeatmasker_out"]),
     ):
         logger.info("=" * 80)
         logger.info("STAGE: Defragmenting_RModAnnotation")
