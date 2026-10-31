@@ -1,7 +1,13 @@
 # EarlGrey storage
 
-This repository provides a separate, reversible storage command for EarlGrey
-trees. Native EarlGrey does not know about these archives. This command never
+[`compact_earlgrey.py`](../compact_earlgrey.py) is a standalone, single-file
+utility for reversibly reducing EarlGrey output trees. Copy this one file
+anywhere and run it with Python 3.10 or newer. It uses only the Python standard
+library: no DrayAnn installation, `pip` packages, or Conda environment is needed.
+The optional `--run` wrapper still requires your existing EarlGrey installation
+and its usual dependencies.
+
+Native EarlGrey does not know about these archives. This utility never
 modifies EarlGrey's installed source or changes TE detection/classification.
 The layout and completion checks follow the
 [official EarlGrey pipeline](https://github.com/TobyBaril/EarlGrey/blob/main/earlGrey).
@@ -9,12 +15,15 @@ Older or different layouts that do not satisfy these checks are refused.
 
 ## Existing runs
 
-Use the Python environment where DrayTE is installed. Preview one outer output
-directory (for example `Avcr_Earlgrey`) or its inner `Avcr_EarlGrey` directory:
+Replace `/path/to/compact_earlgrey.py` below with the location of your copied
+script. Preview one outer output directory (for example `Avcr_Earlgrey`) or
+its inner `Avcr_EarlGrey` directory:
 
 ```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey
 ```
+
+If the root has a different name, add `--species Avcr` explicitly.
 
 Preview changes no output files. It reports `eligible`, validation errors, an
 archive plan and current allocated bytes/file counts. Completion requires the
@@ -32,7 +41,7 @@ From the directory holding the species outputs, preview them all:
 ```bash
 for directory in *_Earlgrey; do
   [ -d "$directory" ] || continue
-  python -m drayte.storage.earlgrey --root "$directory"
+  python3 /path/to/compact_earlgrey.py --root "$directory"
 done
 ```
 
@@ -41,7 +50,7 @@ output tree. The `--idle` flag records this assertion; a new lock cannot detect
 older native EarlGrey processes. Then apply:
 
 ```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey --apply --idle
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey --apply --idle
 ```
 
 Do not apply indiscriminately to every species while jobs are running. Other
@@ -75,7 +84,7 @@ Never remove this directory: it is part of the resumable dataset.
 Use this wrapper around the original EarlGrey command in the job script:
 
 ```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey --idle --run \
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey --idle --run \
   earlGrey -g genome.fa -s Avcr -o Avcr_Earlgrey -t 16
 ```
 
@@ -89,7 +98,7 @@ leaves restored working files available for investigation and retry.
 Before using native EarlGrey directly, restore explicitly:
 
 ```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey --restore --apply --idle
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey --restore --apply --idle
 ```
 
 Restoration verifies checksums and preserves original paths and modification
@@ -99,5 +108,7 @@ originals remain; failure before verification leaves those originals intact.
 Resume expands archived files, so working space can exceed compact idle space.
 Already compressed files may save few bytes; gains depend on actual data.
 
-The module form works after a repository update without reinstalling. Installing
-the updated package also registers the equivalent `earlgrey-storage` shortcut.
+The standalone script uses the same archive format and recovery catalog as the
+previous packaged utility. Existing managed archives can be previewed, verified,
+and restored with this script; no conversion or DrayAnn installation is needed.
+DrayAnn's integrated storage mode remains separate and unchanged.

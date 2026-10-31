@@ -1,5 +1,9 @@
 # Storage management
 
+This page describes storage management integrated into DrayAnn. EarlGrey output
+has a separate [single-file utility](earlgrey-storage.md) that runs independently
+of DrayAnn.
+
 Storage has two different costs: bytes and filesystem objects. One large
 alignment consumes disk space; thousands of per-family work files also consume
 inode quota and make backups and directory scans expensive. Compact mode reduces
@@ -61,8 +65,8 @@ the repository.
    in `.storage/scratch_actions.jsonl` and `drayte.log`.
    Early extension savings are measured separately in `.storage/extension_report.json`.
 
-For existing runs compacted through the standalone command, original CLI-only
-inputs may be absent from the YAML. Scratch is therefore archived reversibly
+For existing runs compacted through the separate DrayTE storage command,
+original CLI-only inputs may be absent from the YAML. Scratch is therefore archived reversibly
 rather than deleted. A resumed pipeline restores it before checking the original
 `--repeatmodeler-library`/reference paths. Automatic scratch deletion is limited
 to pipeline runs where the effective runtime inputs are known.
@@ -135,8 +139,10 @@ python -m pip install --no-deps --no-build-isolation -e .
 The CLI deliberately processes one configuration/output directory at a time.
 Preview each species before applying a batch. It only operates on DrayAnn2's
 own output tree; external EarlGrey results and externally supplied libraries
-are not compacted or removed by this command. Use the separate explicit
-[EarlGrey storage command](earlgrey-storage.md) for EarlGrey trees.
+are not compacted or removed by this command. For EarlGrey trees, copy the
+standalone [`compact_earlgrey.py`](../compact_earlgrey.py) file anywhere and follow
+the [EarlGrey storage instructions](earlgrey-storage.md). That utility requires
+only standard-library Python 3.10+ and no DrayAnn installation.
 
 Old running jobs do not hold the new lock. The lock cannot prove that a legacy
 job, an external tool, or a person is not reading the directory. Confirm those
@@ -164,8 +170,8 @@ being silently declared complete.
 
 - Compression needs temporary free space for an archive while its originals
   still exist. During a compact pipeline run, completed disposable scratch is
-  pruned first to make headroom. Standalone legacy compaction instead preserves
-  scratch in archives, so it may require additional headroom. If archive
+  pruned first to make headroom. Configuration-based legacy compaction instead
+  preserves scratch in archives, so it may require additional headroom. If archive
   creation fails, originals remain. You may still need another filesystem to
   bootstrap cleanup of a completely full quota.
 - Resume temporarily expands archived evidence. This version reduces idle

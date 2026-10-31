@@ -383,30 +383,6 @@ equivalent command. Full procedures, retained files, archive verification,
 locking, temporary quota headroom, and legacy checkpoint limits are documented
 in [Storage management](docs/storage-management.md).
 
-Existing EarlGrey output has a separate preview/cleanup command. It preserves
-all final summaries and libraries, the original RepeatModeler library needed
-by DrayTE, and raw RepeatMasker `.out/.tbl` for benchmarking:
-
-```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey
-# Only after that output directory is idle and the preview is eligible:
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey --apply --idle
-```
-
-For future EarlGrey jobs, wrap the original command to restore before resuming
-and compact after successful completion:
-
-```bash
-python -m drayte.storage.earlgrey --root Avcr_Earlgrey --idle --run \
-  earlGrey -g genome.fa -s Avcr -o Avcr_Earlgrey -t 16
-```
-
-Keep the original EarlGrey arguments, including any library/HELIANO options.
-An existing native job does not hold the wrapper's lock: `--idle` asserts that
-no other job uses that output. Direct native EarlGrey calls require an explicit
-restore first. See [EarlGrey storage](docs/earlgrey-storage.md) for batch previews,
-restoration, completion checks, and limits.
-
 RepeatMasker's full stdout and stderr are saved to files rather than printed in
 the terminal or copied into `drayte.log`:
 
@@ -418,6 +394,24 @@ path. Each rerun appends an attempt header with a UTC timestamp and command,
 preserving earlier output. Cache skips leave existing logs untouched, and older
 completed runs without these logs remain valid. Available log paths are also
 recorded as `repeatmasker_log` in the corresponding stage manifest.
+
+### Standalone EarlGrey storage utility
+
+[`compact_earlgrey.py`](compact_earlgrey.py) is a single file that can be copied
+anywhere and run with standard-library Python 3.10+. It needs no DrayAnn
+installation, `pip` packages, or Conda environment. It preserves final summaries,
+libraries, and raw RepeatMasker `.out/.tbl` while reversibly archiving bulky work:
+
+```bash
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey
+# Only after that output directory is idle and the preview is eligible:
+python3 /path/to/compact_earlgrey.py --root Avcr_Earlgrey --apply --idle
+```
+
+See [EarlGrey storage](docs/earlgrey-storage.md) for batch previews, restoration,
+and wrapping future EarlGrey commands to restore before resuming and compact
+after successful completion. Native EarlGrey calls require an explicit restore
+first. The script also reads archives created by the previous packaged utility.
 
 -----
 

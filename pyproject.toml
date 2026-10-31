@@ -21,7 +21,6 @@ dependencies = [
 [project.scripts]
 drayte = "drayte.pipeline.runner:main"
 drayte-storage = "drayte.storage.cli:main"
-earlgrey-storage = "drayte.storage.earlgrey:main"
 drayte-classify = "drayte.classification.run:main"
 drayte-structure = "drayte.classification.detect_structure:main"
 drayte-evaluate = "drayte.classification.evaluate:main"

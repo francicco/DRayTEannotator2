@@ -1,12 +1,23 @@
+import hashlib
+import importlib.util
 import json
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from drayte.storage.archive import ArchiveStore
-from drayte.storage import earlgrey
 from drayte.storage.policy import output_lock
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "compact_earlgrey.py"
+spec = importlib.util.spec_from_file_location("standalone_compact_earlgrey", SCRIPT)
+earlgrey = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = earlgrey
+spec.loader.exec_module(earlgrey)
 
 
 @pytest.fixture
@@ -60,6 +71,65 @@ def test_preview_is_read_only_and_accepts_outer_or_inner(run_tree):
     assert any(item["path"] == "Test_RepeatLandscape" for item in report["plan"])
     assert tree_files(outer) == before
     assert not (inner / ".storage").exists()
+
+
+def test_single_copied_script_compacts_and_restores_without_installed_packages(run_tree, tmp_path):
+    outer, inner, _ = run_tree
+    isolated = tmp_path / "independent_script"
+    isolated.mkdir()
+    copied = isolated / SCRIPT.name
+    shutil.copy2(SCRIPT, copied)
+    assert list(isolated.iterdir()) == [copied]
+    before = tree_files(inner)
+    mtimes = {relative: (inner / relative).stat().st_mtime_ns for relative in before}
+
+    def run(*options):
+        # -I removes the repository/PYTHONPATH; -S disables site packages. Only
+        # the single copied file and Python's standard library are available.
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", str(copied), "--root", str(outer), *options],
+            cwd=isolated, check=True, capture_output=True, text=True,
+        )
+        return json.loads(result.stdout)
+
+    preview = run()
+    assert preview["eligible"] and preview["read_only"]
+    assert tree_files(inner) == before
+    assert not (inner / ".storage").exists()
+    report = run("--apply", "--idle")
+    assert report["actions"]
+    assert report["after"]["allocated_bytes"] < report["before"]["allocated_bytes"]
+    for relative, data in before.items():
+        if "summaryFiles/" in relative or "Database/" in relative or relative.endswith((".out", ".tbl", ".cat.gz", ".strained")):
+            assert (inner / relative).read_bytes() == data
+    catalog = json.loads((inner / ".storage/archives.json").read_text())
+    for record in catalog["archives"].values():
+        assert hashlib.sha256((inner / record["archive"]).read_bytes()).hexdigest() == record["archive_sha256"]
+    assert run("--restore")["read_only"]
+    restored = run("--restore", "--apply", "--idle")
+    assert restored["restored"]
+    for relative, data in before.items():
+        assert (inner / relative).read_bytes() == data
+        assert (inner / relative).stat().st_mtime_ns == mtimes[relative]
+    assert not list((inner / ".storage/archives").iterdir())
+
+
+@pytest.mark.parametrize("creator,restorer", [
+    (ArchiveStore, "standalone"), ("standalone", ArchiveStore),
+])
+def test_existing_catalogs_are_compatible_in_both_directions(run_tree, creator, restorer):
+    _, inner, _ = run_tree
+    creator = earlgrey.ArchiveStore if creator == "standalone" else creator
+    restorer = earlgrey.ArchiveStore if restorer == "standalone" else restorer
+    target = "Test_RepeatModeler/RM_old"
+    source = inner / target
+    before = tree_files(source)
+    with output_lock(inner):
+        record = creator(inner).archive(target)
+        assert not source.exists()
+        assert restorer(inner).restore_all() == [target]
+    assert tree_files(source) == before
+    assert not (inner / record["archive"]).exists()
 
 
 def test_compact_retains_libraries_final_products_and_restores_exactly(run_tree):
