@@ -32,6 +32,25 @@ products, an independent discovery library, and the raw RepeatMasker hit/table
 pair. Exported library and BED/GFF contents must match their stage sources.
 Existing archives are verified and symlink dependencies are checked.
 
+Native log names vary by EarlGrey version. The script checks both
+`<species>_EarlGrey.log` and the historical `<species>EarlGrey.log` inside the
+inner run directory. The underscore was added in an
+[upstream change on 15 June 2026](https://github.com/TobyBaril/EarlGrey/commit/7bf9d5e3d5967498dd5683180e2591a97851e040).
+If both names exist, the newest log is checked; an older successful log cannot
+override a newer unfinished or failed attempt. Missing logs and incomplete
+completion receipts still block compaction.
+The optional `.highLevelCount.kable` display file is not required: older
+versions did not produce it. The numerical summary, plot, BED/GFF, divergence
+table, exported library, raw hits and native completion receipt remain required.
+
+Final exported libraries also vary with native options. The script matches
+each exported library by its exact content hash against a known stage source:
+a top-level strained library, a strained or clustered library within a `TS_*`
+work directory, or the combined library under `*_Curated_Library` when known
+repeats were included. A combined or clustered export does not require an
+additional unclustered copy in the summary directory. These layout checks
+preserve the completion requirements and reject unmatched exports.
+
 An 11–17 KB output tree can be a precreated or unfinished set of stage
 directories. Small size does not establish a successful run, and final summaries
 alone can occupy hundreds of megabytes. There is no universal target size.

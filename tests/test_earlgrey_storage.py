@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,127 @@ def test_preview_is_read_only_and_accepts_outer_or_inner(run_tree):
     assert report["read_only"]
     assert any(item["path"] == "Test_RepeatLandscape" for item in report["plan"])
     assert tree_files(outer) == before
+    assert not (inner / ".storage").exists()
+
+
+@pytest.mark.parametrize("has_kable", [True, False])
+def test_historical_log_name_supports_preview_compaction_and_restore(run_tree, has_kable):
+    _, inner, _ = run_tree
+    modern = inner / "Test_EarlGrey.log"
+    legacy = inner / "TestEarlGrey.log"
+    modern.rename(legacy)
+    if not has_kable:
+        (inner / "Test_summaryFiles/Test.highLevelCount.kable").unlink()
+    before = tree_files(inner)
+    preview = earlgrey.preview(inner, "Test")
+    assert preview["eligible"]
+    assert preview["completion"]["log"] == str(legacy)
+    with output_lock(inner):
+        assert earlgrey.compact(inner, "Test")["actions"]
+        assert earlgrey.preview(inner, "Test")["eligible"]
+        earlgrey.ArchiveStore(inner).restore_all()
+    for relative, data in before.items():
+        assert (inner / relative).read_bytes() == data
+    assert legacy.is_file() and not modern.exists()
+
+
+@pytest.mark.parametrize("newer_name", ["Test_EarlGrey.log", "TestEarlGrey.log"])
+@pytest.mark.parametrize("failure", ["empty", "incomplete", "failed"])
+def test_newer_log_cannot_fall_back_to_old_success(run_tree, newer_name, failure):
+    _, inner, write = run_tree
+    completed = (inner / "Test_EarlGrey.log").read_text()
+    stale_name = "TestEarlGrey.log" if newer_name == "Test_EarlGrey.log" else "Test_EarlGrey.log"
+    stale = write(stale_name, completed)
+    latest = {"empty": "", "incomplete": "<<< Running RepeatModeler >>>\n",
+              "failed": completed + "ERROR: rerun failed\n"}[failure]
+    newer = write(newer_name, latest)
+    os.utime(stale, ns=(1_600_000_000_000_000_000, 1_600_000_000_000_000_000))
+    os.utime(newer, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    before = tree_files(inner)
+    report = earlgrey.preview(inner, "Test")
+    assert not report["eligible"]
+    assert report["errors"]
+    with pytest.raises(ValueError):
+        earlgrey.compact(inner, "Test")
+    assert tree_files(inner) == before
+    assert not (inner / ".storage").exists()
+
+
+def test_missing_logs_diagnostic_lists_both_historical_and_modern_names(run_tree):
+    _, inner, _ = run_tree
+    (inner / "Test_EarlGrey.log").unlink()
+    report = earlgrey.preview(inner, "Test")
+    assert not report["eligible"]
+    assert "Test_EarlGrey.log" in report["errors"][0]
+    assert "TestEarlGrey.log" in report["errors"][0]
+    assert not (inner / ".storage").exists()
+
+
+def test_conflicting_log_contents_with_same_timestamp_are_ambiguous(run_tree):
+    _, inner, write = run_tree
+    modern = inner / "Test_EarlGrey.log"
+    legacy = write("TestEarlGrey.log", "<<< Running RepeatModeler >>>\n")
+    for log in (modern, legacy):
+        os.utime(log, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    report = earlgrey.preview(inner, "Test")
+    assert not report["eligible"]
+    assert "ambig" in report["errors"][0].lower()
+    assert not (inner / ".storage").exists()
+
+
+def test_identical_log_contents_with_same_timestamp_are_usable(run_tree):
+    _, inner, write = run_tree
+    modern = inner / "Test_EarlGrey.log"
+    legacy = write("TestEarlGrey.log", modern.read_text())
+    for log in (modern, legacy):
+        os.utime(log, ns=(1_700_000_000_000_000_000, 1_700_000_000_000_000_000))
+    assert earlgrey.preview(inner, "Test")["eligible"]
+
+
+def prepare_library_variant(inner, write, variant):
+    (inner / "Test_summaryFiles/Test-families.fa.strained").unlink()
+    if variant == "initial":
+        source = write("Test_Curated_Library/Test_combined_library.fasta", ">family\nACGTACGT\n>curated\nTTTT\n")
+    else:
+        source = write("Test_strainer/TS_old/Test-families.fa.strained.clstrd.fa", ">family\nACGTACGTACGT\n")
+    exported = write("Test_summaryFiles/" + source.name, source.read_text())
+    return source, exported
+
+
+@pytest.mark.parametrize("variant", ["initial", "clustered"])
+def test_native_library_variants_compact_and_restore(run_tree, variant):
+    _, inner, write = run_tree
+    source, exported = prepare_library_variant(inner, write, variant)
+    before = tree_files(inner)
+    report = earlgrey.preview(inner, "Test")
+    assert report["eligible"], report["errors"]
+    assert report["completion"]["library"] == str(source)
+    with output_lock(inner):
+        assert earlgrey.compact(inner, "Test")["actions"]
+        assert exported.read_bytes() == before[str(exported.relative_to(inner))]
+        assert (inner / "Test_strainer/Test-families.fa.strained").is_file()
+        assert earlgrey.preview(inner, "Test")["eligible"]
+        earlgrey.ArchiveStore(inner).restore_all()
+    for relative, data in before.items():
+        assert (inner / relative).read_bytes() == data
+
+
+@pytest.mark.parametrize("variant", ["initial", "clustered"])
+@pytest.mark.parametrize("failure", ["missing", "mismatched"])
+def test_native_library_variants_require_matching_export(run_tree, variant, failure):
+    _, inner, write = run_tree
+    source, exported = prepare_library_variant(inner, write, variant)
+    if failure == "missing":
+        exported.unlink()
+    else:
+        exported.write_text(">different\nAAAA\n")
+    before = tree_files(inner)
+    report = earlgrey.preview(inner, "Test")
+    assert not report["eligible"]
+    with pytest.raises(ValueError):
+        earlgrey.compact(inner, "Test")
+    assert source.is_file()
+    assert tree_files(inner) == before
     assert not (inner / ".storage").exists()
 
 
@@ -500,3 +622,17 @@ def test_native_sigterm_handler_is_scoped_and_stops_workers(monkeypatch, failure
         assert earlgrey.run_native(["earlGrey"]) == 0
         assert not calls
     assert signal.getsignal(signal.SIGTERM) is original
+
+
+def test_clustered_export_does_not_replace_native_straining_resume_guard(run_tree):
+    _, inner, write = run_tree
+    plain = inner / "Test_strainer/Test-families.fa.strained"
+    sequence = plain.read_text()
+    plain.unlink()
+    write("Test_strainer/Test-families.fa.strained.clstrd.fa", sequence)
+    write("Test_summaryFiles/Test-families.fa.strained.clstrd.fa", sequence)
+    report = earlgrey.preview(inner, "Test")
+    assert not report["eligible"]
+    assert str(plain) in report["errors"][0]
+    assert not (inner / ".storage").exists()
+    assert (inner / "Test_RepeatModeler/RM_old").is_dir()

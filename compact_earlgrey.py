@@ -501,13 +501,77 @@ def _same_export(store, original, exported):
         raise ValueError(f"EarlGrey summary export does not match its stage source: {exported}")
 
 
+def completion_log(inner: Path, species: str) -> Path:
+    """Use the latest native attempt across current and historical log names.
+
+    Upstream added the separator on 2026-06-15. An empty or unfinished newer
+    log must never fall back to an older successful attempt.
+    """
+    candidates = [inner / f"{species}_EarlGrey.log", inner / f"{species}EarlGrey.log"]
+    present = [path for path in candidates if path.exists() or path.is_symlink()]
+    if not present:
+        raise ValueError("Missing native EarlGrey log; checked: " + ", ".join(map(str, candidates)))
+    newest = max(path.stat().st_mtime_ns for path in present)
+    latest = [path for path in present if path.stat().st_mtime_ns == newest]
+    if len(latest) > 1:
+        if (any(not path.is_file() for path in latest)
+                or len({digest(path) for path in latest}) != 1):
+            raise ValueError("Ambiguous EarlGrey logs have identical timestamps but conflicting contents: "
+                             + ", ".join(map(str, latest)))
+    _required(latest[0])
+    return latest[0]
+
+
+def validated_library_exports(inner: Path, species: str, store):
+    """Match native final library variants, including archived TS sources."""
+    summary = inner / f"{species}_summaryFiles"
+    strainer = inner / f"{species}_strainer"
+    plain = f"{species}-families.fa.strained"
+    clustered = plain + ".clstrd.fa"
+    combined = f"{species}_combined_library.fasta"
+    names = (combined, clustered, plain)
+    sources = {strainer / plain, strainer / clustered,
+               inner / f"{species}_Curated_Library" / combined}
+    for name in (plain, clustered):
+        sources.update(strainer.glob(f"TS_*/{name}"))
+    # Native clustering can leave its final library under TS_*. The summary
+    # copy stays loose when that source directory is managed in an archive.
+    for record in store.records().values():
+        for member in record["members"]:
+            parts = Path(member["name"]).parts
+            if (member["type"] == "file" and len(parts) == 3
+                    and parts[0] == strainer.name and parts[1].startswith("TS_")
+                    and parts[2] in {plain, clustered}):
+                sources.add(inner / member["name"])
+    exports = [summary / name for name in names if (summary / name).exists()]
+    if not exports:
+        raise ValueError("Missing exported EarlGrey library in " + str(summary)
+                         + "; expected one of: " + ", ".join(names))
+    matches = []
+    for exported in exports:
+        _required(exported)
+        matched = None
+        for source in sorted(sources):
+            if source.name != exported.name:
+                continue
+            try:
+                _same_export(store, source, exported)
+            except ValueError:
+                continue
+            matched = source
+            break
+        if matched is None:
+            raise ValueError(f"EarlGrey summary library export does not match a known stage source: {exported}")
+        matches.append({"source": str(matched), "export": str(exported)})
+    return matches
+
+
 def validate_completed(inner: Path, species: str):
     """Require native completion and the exported products, retaining benchmarks."""
     if not inner.is_dir():
         raise ValueError(f"EarlGrey run directory does not exist: {inner}")
     store = ArchiveStore(inner)
-    log = inner / f"{species}_EarlGrey.log"
-    _required(log)
+    log = completion_log(inner, species)
     text = log.read_text(errors="replace")
     completed_at = text.rfind(FINAL_MESSAGE)
     if completed_at < 0 or not re.search(r"<<<\s*Done in\s+", text[:completed_at]):
@@ -519,19 +583,17 @@ def validate_completed(inner: Path, species: str):
     if re.search(r"(?im)^\s*(?:ERROR\b|FATAL\b|Traceback\b|.*Error:)", trailing):
         raise ValueError("EarlGrey log reports a failure after its completion receipt")
     summary = inner / f"{species}_summaryFiles"
-    for suffix in ("highLevelCount.txt", "highLevelCount.kable", "summaryPie.pdf",
+    for suffix in ("highLevelCount.txt", "summaryPie.pdf",
                    "filteredRepeats.bed", "filteredRepeats.gff"):
         _required(summary / f"{species}.{suffix}")
     _required(summary / f"{species}_divergence_summary_table.tsv")
     baseline = inner / f"{species}_Database" / f"{species}-families.fa"
     _required(baseline)
-    libraries = [inner / f"{species}_strainer" / f"{species}-families.fa{suffix}"
-                 for suffix in (".strained", ".strained.clstrd.fa")]
-    available = [path for path in libraries if path.is_file() and path.stat().st_size]
-    if not available:
-        raise ValueError("Missing completed top-level EarlGrey strained library")
-    library = available[-1]
-    _same_export(store, library, summary / library.name)
+    # Native full-pipeline resume uses this particular unclustered file as its
+    # straining skip guard, even when the final masking/export library differs.
+    _required(inner / f"{species}_strainer" / f"{species}-families.fa.strained")
+    libraries_exported = validated_library_exports(inner, species, store)
+    library = Path(libraries_exported[0]["source"])
     masker = inner / f"{species}_RepeatMasker_Against_Custom_Library"
     pairs = [(path, path.with_suffix(".tbl")) for path in sorted(masker.glob("*.out"))
              if path.is_file() and path.with_suffix(".tbl").is_file()]
@@ -554,6 +616,7 @@ def validate_completed(inner: Path, species: str):
         raise ValueError("Final BED/GFF exports cannot be matched to loose or strict merge products")
     return {"log": str(log), "raw_repeatmasker_out": str(pairs[0][0]),
             "raw_repeatmasker_table": str(pairs[0][1]), "library": str(library),
+            "library_exports": libraries_exported,
             "summary_directory": str(summary), "merge_source": str(chosen[0])}
 
 
