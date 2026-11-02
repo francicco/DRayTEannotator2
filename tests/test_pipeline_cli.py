@@ -90,3 +90,31 @@ def test_storage_flag_is_forwarded_without_changing_classification(tmp_path, mon
     config = capture_pipeline_config(tmp_path, monkeypatch, settings, ["--storage-mode", "compact"])
     assert config.extra["storage"]["mode"] == "compact"
     assert config.extra["classification"] == settings
+
+
+def test_reference_policy_flags_override_yaml_without_changing_other_evidence(tmp_path, monkeypatch):
+    config = capture_pipeline_config(
+        tmp_path, monkeypatch,
+        {"mmseqs_rescue_db": "configured.fa", "mmseqs_rescue_mode": "reciprocal", "cpu": 3},
+        ["--mmseqs-rescue-mode", "one-way", "--mmseqs-rescue-score-fraction", "0.98"],
+    )
+    assert config.extra["classification"] == {
+        "mmseqs_rescue_db": "configured.fa", "mmseqs_rescue_mode": "one-way",
+        "mmseqs_rescue_score_fraction": 0.98, "cpu": 3,
+    }
+
+
+@pytest.mark.parametrize("fraction", ["0", "-0.1", "1.01", "nan", "inf"])
+def test_invalid_reference_score_fraction_fails_before_running_tools(tmp_path, monkeypatch, fraction):
+    with pytest.raises(ValueError, match="score-fraction must be"):
+        capture_pipeline_config(
+            tmp_path, monkeypatch, {"mmseqs_rescue_db": "configured.fa"},
+            ["--mmseqs-rescue-score-fraction", fraction],
+        )
+    assert not (tmp_path / "results").exists()
+
+
+def test_explicit_reference_policy_requires_a_reference(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match="require a reference FASTA"):
+        capture_pipeline_config(tmp_path, monkeypatch, {}, ["--mmseqs-rescue-mode", "one-way"])
+    assert not (tmp_path / "results").exists()

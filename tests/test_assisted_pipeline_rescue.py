@@ -50,6 +50,7 @@ def assisted_case(tmp_path, monkeypatch):
         extra={"classification": {
             "structure_input_fasta": str(structure), "min_orf_nt": 300,
             "mmseqs_rescue_db": str(reference), "mmseqs_bin": str(fake_mmseqs),
+            "mmseqs_rescue_mode": "reciprocal",
         }},
     )
     extensionwork = root / "extension/extensionwork"
@@ -167,7 +168,7 @@ def test_matching_assisted_checkpoint_skips_whole_stage_after_worker_change(assi
     def unexpected(*args, **kwargs):
         pytest.fail("Valid assisted stage must skip all evidence work")
 
-    monkeypatch.setattr(stage, "run_reciprocal_mmseqs_rescue", unexpected)
+    monkeypatch.setattr(stage, "run_reference_mmseqs_rescue", unexpected)
     monkeypatch.setattr(stage, "detect_complexity_from_fasta", unexpected)
     second = case.run()
     assert second["classified_library"] == first["classified_library"]
@@ -205,7 +206,7 @@ def test_unassisted_checkpoint_still_skips_without_reciprocal_report(assisted_ca
     def unexpected(*args, **kwargs):
         pytest.fail("Unassisted completed stage should retain its old resume behavior")
 
-    monkeypatch.setattr(stage, "run_reciprocal_mmseqs_rescue", unexpected)
+    monkeypatch.setattr(stage, "run_reference_mmseqs_rescue", unexpected)
     monkeypatch.setattr(stage, "detect_complexity_from_fasta", unexpected)
     result = case.run()
     assert result["n_unknown"] == 2

@@ -2,7 +2,7 @@
 
 DRayTEannotator2 is a modular framework for transposable element (TE) discovery, consensus reconstruction, evidence-based classification, genome annotation, and post-annotation refinement.
 
-The workflow formalises and extends the original DRayTE strategy developed in the Ray laboratory into a reproducible and scalable Python-based framework. DRayTEannotator2 integrates de novo repeat discovery, consensus extension, structural evidence, protein-domain annotation, reciprocal similarity rescue, and nested-aware post-processing into a unified workflow for TE annotation in eukaryotic genomes.
+The workflow formalises and extends the original DRayTE strategy developed in the Ray laboratory into a reproducible and scalable Python-based framework. DRayTEannotator2 integrates de novo repeat discovery, consensus extension, structural evidence, protein-domain annotation, reference-assisted similarity rescue, and nested-aware post-processing into a unified workflow for TE annotation in eukaryotic genomes.
 
 The pipeline is designed both for:
 - high-quality TE library reconstruction
@@ -105,7 +105,7 @@ DRayTEannotator2 implements a multi-evidence TE classification framework integra
 * Pfam protein-domain annotation
 * ORF prediction
 * structural signatures
-* reciprocal MMseqs2 rescue
+* MMseqs2 reference rescue with optional reciprocal matching
 * RepeatMasker header homology
 * genomic copy support
 
@@ -121,7 +121,7 @@ Assignments are evaluated at:
 
 3. Reciprocal `MMseqs2` rescue
 
-4. Unclassified families can be rescued using reciprocal nucleotide similarity searches against classified TE libraries.
+4. Unclassified families can be rescued using nucleotide similarity searches against classified TE libraries; one-way transfer allows several predicted families to match the same reference.
 
 5. Rescue filtering includes:
 
@@ -129,7 +129,7 @@ Assignments are evaluated at:
 * minimum alignment length
 * minimum query coverage
 * minimum target coverage
-* reciprocal support filtering
+* reference-label agreement filtering and optional reciprocal support
 * self-hit exclusion
 
 6. Hierarchical rescue is supported:
@@ -306,7 +306,8 @@ Supply a reference FASTA for classification rescue on the command line with:
 
 ```bash
 drayte --config config.yaml \
-  --mmseqs-rescue-db /path/to/Heliconius.classification.fa
+  --mmseqs-rescue-db /path/to/Heliconius.classification.fa \
+  --mmseqs-rescue-mode one-way
 ```
 
 This flag overrides `classification.mmseqs_rescue_db` in the YAML file while
@@ -315,13 +316,17 @@ is used. It selects classification evidence; it does not add the reference
 sequences directly to the final annotation library. The same option is also
 available on the standalone `drayte-classify` command.
 
-External-reference rescue runs both query-to-reference and reference-to-query
-searches, then transfers labels only from matching reciprocal best hits.
+External-reference rescue defaults to one-way query-to-reference search. Several
+predicted consensuses can receive classification evidence from the same curated
+reference. Identity, alignment length and coverage filters still apply, and
+competitive reference matches must agree on the transferred classification.
+Use `--mmseqs-rescue-mode reciprocal` for strict mutual-best matching. The
+near-best score window defaults to 95% of the best bit score and can be changed
+with `--mmseqs-rescue-score-fraction`.
 Query and reference identifiers remain separate, and reference sequences are
 never added to the output family set. The search cache fingerprints both FASTAs
-by content, parameters and algorithm version; older forward-only results are
-regenerated. Logs distinguish alignments, reciprocal pairs, families with rescue
-evidence and classification labels actually changed by that evidence. See
+by content, parameters, policy and algorithm version. Logs distinguish alignments,
+families with rescue evidence and labels actually changed by that evidence. See
 [Reference-assisted classification](docs/mmseqs-reference-rescue.md) for outputs,
 thresholds, interpretation and resuming an older assisted run.
 
@@ -509,7 +514,7 @@ Outputs:
 * classification table
 * evidence table
 * domain annotations
-* reciprocal rescue evidence
+* reference-assisted rescue evidence
 
 -----
 
@@ -634,7 +639,7 @@ For most analyses:
 
 - Pfam is used to detect conserved TE protein domains
 - Dfam is used for nucleotide-level TE homology
-- MMseqs2 rescue is used for recovering unclassified families through reciprocal similarity
+- MMseqs2 rescue is used for recovering unclassified families through reference similarity
 
 Using all three evidence layers substantially improves:
 - TE order assignment
@@ -782,7 +787,7 @@ DRayTEannotator2 emphasises:
 * consensus reconstruction
 * evidence-aware classification
 * library refinement
-* reciprocal rescue
+* reference rescue with optional reciprocal matching
 * structural integration
 * post-annotation optimisation
 
