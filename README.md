@@ -119,7 +119,7 @@ Assignments are evaluated at:
 
 2. Confidence levels are calibrated according to agreement among independent evidence sources.
 
-3. Reciprocal `MMseqs2` rescue
+3. Reference-assisted `MMseqs2` rescue
 
 4. Unclassified families can be rescued using nucleotide similarity searches against classified TE libraries; one-way transfer allows several predicted families to match the same reference.
 
@@ -172,6 +172,25 @@ Intermediate outputs are reused automatically across reruns.
 -----
 
 ## Installation
+
+For a dedicated native Linux environment on BluePebble with RepeatMasker 4.2.4,
+RepeatModeler 2.0.9, and the patched RMBlast build selected for the current
+comparison, use:
+
+```bash
+micromamba create --override-channels -c conda-forge -c bioconda \
+  --strict-channel-priority -f environment.bluepebble.yml
+micromamba activate drayann731
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip check
+```
+
+Run these commands from the repository checkout. This environment has its own
+Python and external tools; keep the existing Python virtual environment for
+older runs. Database configuration and existing absolute paths in analysis
+YAMLs still need verification. See [BluePebble environment setup](docs/bluepebble-environment.md)
+for version checks, shared Dfam setup requirements, and benchmark configuration
+paths.
 
 Recommended: Micromamba / Conda
 

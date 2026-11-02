@@ -5,6 +5,35 @@ use Getopt::Long;
 use File::Spec;
 use File::Temp qw/ tempfile tempdir /;
 
+sub render_alignment_png {
+  my ( $modeler_dir, $genome, $alignment ) = @_;
+  my $python_renderer = File::Spec->catfile($modeler_dir, "util", "visualizeAlignPNG.py");
+  my $perl_renderer = File::Spec->catfile($modeler_dir, "util", "visualizeAlignPNG.pl");
+  my @command;
+
+  # Preserve the existing custom renderer when it is installed. Upstream
+  # RepeatModeler 2.0.9 supplies the Perl utility with the same arguments.
+  if ( -f $python_renderer ) {
+    @command = ("python", $python_renderer);
+  } elsif ( -f $perl_renderer ) {
+    @command = ($^X, $perl_renderer);
+  } else {
+    die "No RepeatModeler alignment visualizer found in $modeler_dir/util: "
+      . "expected visualizeAlignPNG.py or visualizeAlignPNG.pl\n";
+  }
+  push @command, ("-genome", $genome, "-outfile", $alignment);
+
+  my $status = system(@command);
+  die "Could not start alignment visualizer $command[1]: $!\n" if $status == -1;
+  die "Alignment visualizer $command[1] terminated by signal " . ($status & 127) . "\n"
+    if $status & 127;
+  die "Alignment visualizer $command[1] failed with exit code " . ($status >> 8) . "\n"
+    if $status;
+}
+
+# Loading this file exposes the renderer helper without executing extension.
+unless (caller) {
+
 # NOTE: This tool has the following dependencies set in the code below:
 #     RepeatAfter/
 #     Phrap/
@@ -304,8 +333,7 @@ if ( -e "repam-cons.fa") {
  print "Calling alignAndCallConsensus with CORE consensus represented for visualization\n";
  system("perl $repeatModelerDir/util/alignAndCallConsensus.pl --defaults");
  system("perl $repeatModelerDir/util/Linup -malignOut out.malign.w_rmod_cons -i -genome $genomeFile -includeFlanking 50 -msa repam-newrep.out > MSA-extended_with_rmod_cons.fa"); ###### This command fails
- #system("perl $repeatModelerDir/util/visualizeAlignPNG.pl -genome $genome_file -outfile repam-newrep.out");
- system("python $repeatModelerDir/util/visualizeAlignPNG.py -genome $genome_file -outfile repam-newrep.out");
+ render_alignment_png($repeatModelerDir, $genome_file, "repam-newrep.out");
  system("mv repam-newrep.ali ali.w_rmod_cons");
  system("mv repam-newrep.out out.w_rmod_cons");
  system("cp rep.extended rep");
@@ -317,11 +345,12 @@ if ( -e "repam-cons.fa") {
  system("cp rep.unextended rep");
  system("cp repseq.unextended repseq");
  system("cp out.unextended out");
- #system("perl $repeatModelerDir/util/visualizeAlignPNG.pl -genome $genome_file -outfile out");
- system("python $repeatModelerDir/util/visualizeAlignPNG.py -genome $genome_file -outfile out");
+ render_alignment_png($repeatModelerDir, $genome_file, "out");
 }
 
 chdir($curDir);
+
+}
 
 1;
 

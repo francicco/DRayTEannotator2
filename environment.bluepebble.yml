@@ -1,0 +1,61 @@
+# Native Linux environment for the BluePebble comparison runs.
+# Install the local package separately after activating this environment.
+name: drayann731
+channels:
+  - conda-forge
+  - bioconda
+
+dependencies:
+  - python=3.12
+  - pip
+  - setuptools>=61
+  - wheel
+
+  # Every Python runtime dependency declared in pyproject.toml.
+  - pyyaml
+  - biopython
+  - pandas
+  - numpy
+  - matplotlib
+  - pybedtools
+  - pyfaidx
+  - tabulate
+  - h5py
+  - pillow
+
+  # Matched RepeatMasker/RepeatModeler generation for the EarlGrey comparison.
+  - repeatmasker=4.2.4
+  - repeatmodeler=2.0.9
+  # Bioconda build 1 applies the upstream RMBlast 2.17.1 patch to 2.17.0.
+  - rmblast=2.17.0=*_1
+  - famdb=3.0.0
+  - repeatafterme=1.0.0
+
+  # Discovery, extension, classification, curation, and reporting tools.
+  # RMBlast also supplies blastn, blastp, blastx, and makeblastdb; do not add
+  # a separate BLAST package that can replace those executables.
+  - repeatscout
+  - trf
+  - genometools-genometools
+  - ucsc-fatotwobit
+  - ucsc-twobittofa
+  - ucsc-twobitinfo
+  - mafft
+  - hmmer
+  - bedtools
+  - samtools
+  - seqkit
+  - mmseqs2
+  - diamond
+  - cd-hit
+  - emboss
+  - perl
+  - perl-gd
+
+  # Optional Helitron discovery used by the Heliconiini workflow. Its recipe
+  # brings the R runtime it needs; the legacy tidyverse/Bioconductor stack is
+  # not required by the standard DrayAnn reporting code.
+  - heliano
+
+# cross_match is supplied by the user's existing Phrap installation through
+# phrap_dir. Databases (Dfam, Pfam, RepeatPeps) are configured separately.
