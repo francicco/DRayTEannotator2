@@ -50,7 +50,6 @@ def assisted_case(tmp_path, monkeypatch):
         extra={"classification": {
             "structure_input_fasta": str(structure), "min_orf_nt": 300,
             "mmseqs_rescue_db": str(reference), "mmseqs_bin": str(fake_mmseqs),
-            "mmseqs_rescue_mode": "reciprocal",
         }},
     )
     extensionwork = root / "extension/extensionwork"
@@ -99,6 +98,8 @@ def legacy_outputs(case):
     signature = case.signature()
     signature.pop("mmseqs_reference_sha256", None)
     signature.pop("mmseqs_rescue_algorithm_version", None)
+    signature.pop("mmseqs_rescue_mode", None)
+    signature.pop("mmseqs_rescue_score_fraction", None)
     result = {"stage": "classification", "input_signature": signature,
               "input_library": str(case.curated), "n_classified": 0, "n_unknown": 2}
     for key, filename in (("structure_evidence", "T.structure_summary.tsv"),
@@ -133,10 +134,9 @@ def test_old_assisted_result_is_refreshed_and_reference_labels_reach_final_fasta
     caches = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in case.cached_paths}
     result = case.run()
 
-    assert len(case.calls()) == 2  # An old one-way TSV is never adopted.
+    assert len(case.calls()) == 1  # An unverified old TSV is never adopted.
     assert case.calls()[0]["query"] == ["T-family-1#Unknown", "T-family-2#Unknown"]
     assert case.calls()[0]["target"] == ["Curated-Helitron#RC/Helitron"]
-    assert case.calls()[1]["query"] == ["Curated-Helitron#RC/Helitron"]
     assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in case.cached_paths} == caches
 
     classifications = read_table(result["classifications_tsv"])
@@ -150,9 +150,10 @@ def test_old_assisted_result_is_refreshed_and_reference_labels_reach_final_fasta
     assert {record.id.split("#")[0]: str(record.seq) for record in output} == original_sequences
     assert next(record.id for record in output if record.id.startswith("T-family-1#")) == "T-family-1#RC/Helitron"
     assert result["n_classified"] == 1 and result["n_unknown"] == 1
-    report = result["mmseqs_reciprocal_rescue"]
-    assert report["forward_hits"] == 1 and report["reverse_hits"] == 1
-    assert report["reciprocal_pairs"] == 1 and report["families_with_rescue"] == 1
+    report = result["mmseqs_reference_rescue"]
+    assert report["forward_hits"] == 1 and report["families_with_rescue"] == 1
+    assert "reverse_hits" not in report and "reciprocal_pairs" not in report
+    assert "mmseqs_reciprocal_rescue" not in result
     assert report["query_sha256"] == stage.sha256_file(case.structure)
     assert report["reference_sha256"] == stage.sha256_file(case.reference)
     assert result["mmseqs_rescue_impact"]["classifications_changed_by_rescue"] == 1
@@ -172,7 +173,7 @@ def test_matching_assisted_checkpoint_skips_whole_stage_after_worker_change(assi
     monkeypatch.setattr(stage, "detect_complexity_from_fasta", unexpected)
     second = case.run()
     assert second["classified_library"] == first["classified_library"]
-    assert len(case.calls()) == 2
+    assert len(case.calls()) == 1
 
 
 def test_reference_changed_in_place_invalidates_assisted_stage(assisted_case):
@@ -181,7 +182,7 @@ def test_reference_changed_in_place_invalidates_assisted_stage(assisted_case):
     case.reference.write_text(case.reference.read_text().replace("ACGTC", "TCGTC", 1))
     with pytest.raises(RuntimeError, match="classification.mmseqs_rescue_db contents"):
         case.run()
-    assert len(case.calls()) == 2
+    assert len(case.calls()) == 1
 
 
 def test_changed_reference_regenerates_search_when_stage_checkpoint_is_absent(assisted_case):
@@ -191,17 +192,18 @@ def test_changed_reference_regenerates_search_when_stage_checkpoint_is_absent(as
     case.reference.write_text(case.reference.read_text().replace("ACGTC", "TCGTC", 1))
     (case.outdir / "classification.manifest.json").unlink()
     result = case.run()
-    assert len(case.calls()) == 4
+    assert len(case.calls()) == 2
     assert {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in case.cached_paths} == caches
-    report = result["mmseqs_reciprocal_rescue"]
+    report = result["mmseqs_reference_rescue"]
     assert report["reference_sha256"] == stage.sha256_file(case.reference)
     assert not report["cache_reused"]
 
 
-def test_unassisted_checkpoint_still_skips_without_reciprocal_report(assisted_case, monkeypatch):
+def test_unassisted_checkpoint_still_skips_without_external_report(assisted_case, monkeypatch):
     case = assisted_case
     case.config.extra["classification"].pop("mmseqs_rescue_db")
     legacy_outputs(case)
+    (case.outdir / "mmseqs/mmseqs_rescue.tsv").unlink()
 
     def unexpected(*args, **kwargs):
         pytest.fail("Unassisted completed stage should retain its old resume behavior")

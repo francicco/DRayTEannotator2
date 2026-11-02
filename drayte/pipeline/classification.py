@@ -179,13 +179,12 @@ def classification_input_signature(
         validate_file(reference, "MMseqs rescue reference FASTA")
         signature["mmseqs_reference_sha256"] = sha256_file(reference)
         signature["mmseqs_rescue_algorithm_version"] = EXTERNAL_RESCUE_ALGORITHM_VERSION
-        mode = classification_cfg.get("mmseqs_rescue_mode", "one-way")
-        if mode not in {"one-way", "reciprocal"}:
-            raise ValueError("classification.mmseqs_rescue_mode must be one-way or reciprocal")
+        # Keep the fixed direction in provenance so completed one-way runs
+        # remain reusable and historical reciprocal results are refreshed.
         score_fraction = float(classification_cfg.get("mmseqs_rescue_score_fraction", 0.95))
         if not math.isfinite(score_fraction) or not 0 < score_fraction <= 1:
             raise ValueError("classification.mmseqs_rescue_score_fraction must be greater than 0 and at most 1")
-        signature["mmseqs_rescue_mode"] = mode
+        signature["mmseqs_rescue_mode"] = "one-way"
         signature["mmseqs_rescue_score_fraction"] = score_fraction
     return signature
 
@@ -268,7 +267,14 @@ def classification_signature_mismatch_details(cached: dict, current: dict) -> st
 
 def external_rescue_is_current(result: dict, signature: dict) -> bool:
     if "mmseqs_reference_sha256" not in signature:
-        return True
+        if "mmseqs_legacy_rescue_sha256" in signature:
+            cached = result.get("input_signature", {})
+            return isinstance(cached, dict) and all(
+                cached.get(key) == signature[key]
+                for key in ("mmseqs_legacy_rescue_sha256", "mmseqs_legacy_rescue_algorithm_version")
+            )
+        cached = result.get("input_signature")
+        return not (isinstance(cached, dict) and cached.get("mmseqs_legacy_rescue_sha256"))
     evidence = result.get("mmseqs_reference_rescue", result.get("mmseqs_reciprocal_rescue"))
     return isinstance(evidence, dict) and all((
         evidence.get("algorithm_version") == EXTERNAL_RESCUE_ALGORITHM_VERSION,
@@ -341,6 +347,9 @@ def run(
     validate_file(library, "curated TE library")
 
     classification_cfg = config.extra.get("classification", {})
+    if (classification_cfg.get("mmseqs_rescue_db")
+            and classification_cfg.get("mmseqs_rescue_mode") == "reciprocal"):
+        logger.warning("Reciprocal rescue has been removed; ignoring the legacy mmseqs_rescue_mode setting and using one-way reference matching")
 
     extensionwork_dir = Path(
         classification_cfg.get(
@@ -372,6 +381,14 @@ def run(
         stage_name=stage_name,
         final_mode=final_mode,
     )
+    legacy_rescue_tsv = outdir / "mmseqs" / "mmseqs_rescue.tsv"
+    if (not classification_cfg.get("mmseqs_rescue_db")
+            and legacy_rescue_tsv.is_file() and legacy_rescue_tsv.stat().st_size):
+        # Legacy supplied-hit rescue uses the same one-way policy. Do not keep
+        # an old stage's reciprocal-derived labels merely because no external
+        # reference was configured for that historical run.
+        input_signature["mmseqs_legacy_rescue_sha256"] = sha256_file(legacy_rescue_tsv)
+        input_signature["mmseqs_legacy_rescue_algorithm_version"] = EXTERNAL_RESCUE_ALGORITHM_VERSION
 
     if manifest.exists():
         try:
@@ -660,19 +677,16 @@ def run(
             min_query_cov=float(classification_cfg.get("mmseqs_min_query_cov", 0.40)),
             min_target_cov=float(classification_cfg.get("mmseqs_min_target_cov", 0.30)),
             logger=logger,
-            mode=input_signature["mmseqs_rescue_mode"],
             min_score_fraction=input_signature["mmseqs_rescue_score_fraction"],
         )
         if (external.report["query_sha256"] != input_signature["structure_library_sha256"]
                 or external.report["reference_sha256"] != input_signature["mmseqs_reference_sha256"]):
             raise RuntimeError("Classification query or rescue reference changed after stage input validation; no classification completion was recorded")
-        mmseqs_hits = (external.forward_hits if input_signature["mmseqs_rescue_mode"] == "one-way"
-                       else external.reciprocal_hits)
+        mmseqs_hits = external.forward_hits
         mmseqs_rescue_evidence = external.evidence
         reference_report = external.report
-        logger.info("MMseqs rescue (%s): %d forward alignments; %d reverse alignments; %d reciprocal pairs; %d query families with rescue evidence",
-                    input_signature["mmseqs_rescue_mode"], len(external.forward_hits), len(external.reverse_hits),
-                    len(external.reciprocal_hits), len(external.evidence))
+        logger.info("MMseqs reference rescue: %d forward alignments; %d query families with rescue evidence",
+                    len(external.forward_hits), len(external.evidence))
 
     elif mmseqs_tsv.exists() and mmseqs_tsv.stat().st_size > 0:
         logger.info("Parsing cached MMseqs rescue TSV: %s", mmseqs_tsv)
@@ -690,6 +704,8 @@ def run(
             min_query_cov=float(classification_cfg.get("mmseqs_min_query_cov", 0.40)),
             min_target_cov=float(classification_cfg.get("mmseqs_min_target_cov", 0.30)),
         )
+        if sha256_file(mmseqs_tsv) != input_signature["mmseqs_legacy_rescue_sha256"]:
+            raise RuntimeError("Legacy MMseqs rescue TSV changed while reading evidence; no classification completion was recorded")
 
     else:
         logger.info("No MMseqs rescue evidence provided")
@@ -790,8 +806,6 @@ def run(
     }
     if reference_report is not None:
         result["mmseqs_reference_rescue"] = reference_report
-        if reference_report["mode"] == "reciprocal":
-            result["mmseqs_reciprocal_rescue"] = reference_report
         result["mmseqs_rescue_impact"] = rescue_impact
         result["mmseqs_rescue_report"] = reference_report["report_path"]
 

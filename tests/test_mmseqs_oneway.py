@@ -35,10 +35,9 @@ def oneway(tmp_path):
     binary.chmod(0o755)
     directory = tmp_path / "rescue"
 
-    def settings(forward=None, reverse=None, fail=None):
+    def settings(forward=None, fail=None):
         config.write_text(json.dumps({
             "query.fa": row("q1#Unknown", "r1#RC/Helitron") if forward is None else forward,
-            "reference.fa": row("r1#RC/Helitron", "q1#Unknown") if reverse is None else reverse,
             "fail": fail,
         }))
 
@@ -64,9 +63,8 @@ def test_many_query_models_receive_same_reference_label_in_one_search(oneway):
     assert set(result.evidence) == {"q1", "q2"}
     assert all(item.rescue_order == "Helitron" for item in result.evidence.values())
     assert len(case.calls.read_text().splitlines()) == 1
-    assert not result.reverse_hits and not result.reciprocal_hits
     assert result.report["mode"] == "one-way"
-    assert result.report["reverse_tsv"] is None and result.report["reverse_sha256"] is None
+    assert not any("reverse" in key or "reciprocal" in key for key in result.report)
     assert not (case.directory / "mmseqs_rescue.reverse.tsv").exists()
     assert result.report["query_decisions"]["q2"]["status"] == "rescued"
 
@@ -175,20 +173,41 @@ def test_score_window_change_is_signed_and_changes_ambiguity(oneway):
     assert len(oneway.calls.read_text().splitlines()) == 2
 
 
-def test_mode_switch_invalidates_cache_and_old_reverse_is_not_used(oneway):
-    one = oneway.run()
-    assert not one.report["cache_reused"]
-    reciprocal = oneway.run(mode="reciprocal")
-    assert len(oneway.calls.read_text().splitlines()) == 3
-    assert reciprocal.report["reciprocal_pairs"] == 1
-    old_reverse = Path(reciprocal.report["reverse_tsv"])
-    old_reverse.write_text("untrusted old reverse content\n")
-    next_one = oneway.run()
-    assert len(oneway.calls.read_text().splitlines()) == 4
-    assert next_one.evidence and next_one.report["reverse_tsv"] is None
+def test_historical_reciprocal_cache_is_rebuilt_and_old_reverse_is_untouched(oneway):
+    first = oneway.run()
+    checkpoint_path = Path(first.report["checkpoint"])
+    checkpoint = json.loads(checkpoint_path.read_text())
+    checkpoint["input_signature"]["mode"] = "reciprocal"
+    checkpoint["reverse_sha256"] = "historical digest"
+    checkpoint_path.write_text(json.dumps(checkpoint))
+    old_reverse = oneway.directory / "mmseqs_rescue.reverse.tsv"
+    old_reverse.write_text("historical reverse content\n")
+    before = old_reverse.read_bytes(), old_reverse.stat().st_mtime_ns
+    rebuilt = oneway.run()
+    assert not rebuilt.report["cache_reused"]
+    assert len(oneway.calls.read_text().splitlines()) == 2
+    assert (old_reverse.read_bytes(), old_reverse.stat().st_mtime_ns) == before
+    assert not any("reverse" in key for key in rebuilt.report)
     cached = oneway.run(threads=8)
     assert cached.report["cache_reused"]
-    assert len(oneway.calls.read_text().splitlines()) == 4
+    assert len(oneway.calls.read_text().splitlines()) == 2
+
+
+def test_completed_v2_oneway_cache_with_old_null_reverse_field_is_reused(oneway):
+    first = oneway.run()
+    checkpoint_path = Path(first.report["checkpoint"])
+    checkpoint = json.loads(checkpoint_path.read_text())
+    checkpoint["reverse_sha256"] = None
+    checkpoint_path.write_text(json.dumps(checkpoint))
+    # This legacy path may even be a dangling symlink. It is never opened or
+    # validated by the one-way cache.
+    old_reverse = oneway.directory / "mmseqs_rescue.reverse.tsv"
+    old_reverse.symlink_to(oneway.directory / "missing-historical-reverse")
+    cached = oneway.run()
+    assert cached.report["cache_reused"]
+    assert len(oneway.calls.read_text().splitlines()) == 1
+    assert old_reverse.is_symlink()
+    assert not any("reverse" in key for key in cached.report)
 
 
 def test_empty_oneway_search_is_reusable_and_explains_missing_hits(oneway):

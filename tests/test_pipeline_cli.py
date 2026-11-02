@@ -92,14 +92,14 @@ def test_storage_flag_is_forwarded_without_changing_classification(tmp_path, mon
     assert config.extra["classification"] == settings
 
 
-def test_reference_policy_flags_override_yaml_without_changing_other_evidence(tmp_path, monkeypatch):
+def test_prior_oneway_flag_is_accepted_without_retaining_a_mode_selector(tmp_path, monkeypatch):
     config = capture_pipeline_config(
         tmp_path, monkeypatch,
         {"mmseqs_rescue_db": "configured.fa", "mmseqs_rescue_mode": "reciprocal", "cpu": 3},
         ["--mmseqs-rescue-mode", "one-way", "--mmseqs-rescue-score-fraction", "0.98"],
     )
     assert config.extra["classification"] == {
-        "mmseqs_rescue_db": "configured.fa", "mmseqs_rescue_mode": "one-way",
+        "mmseqs_rescue_db": "configured.fa",
         "mmseqs_rescue_score_fraction": 0.98, "cpu": 3,
     }
 
@@ -114,7 +114,17 @@ def test_invalid_reference_score_fraction_fails_before_running_tools(tmp_path, m
     assert not (tmp_path / "results").exists()
 
 
-def test_explicit_reference_policy_requires_a_reference(tmp_path, monkeypatch):
+def test_reference_options_require_a_reference(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="require a reference FASTA"):
         capture_pipeline_config(tmp_path, monkeypatch, {}, ["--mmseqs-rescue-mode", "one-way"])
+    assert not (tmp_path / "results").exists()
+
+
+def test_reciprocal_cli_is_rejected_before_running_tools(tmp_path, monkeypatch):
+    with pytest.raises(SystemExit) as error:
+        capture_pipeline_config(
+            tmp_path, monkeypatch, {"mmseqs_rescue_db": "configured.fa"},
+            ["--mmseqs-rescue-mode", "reciprocal"],
+        )
+    assert error.value.code == 2
     assert not (tmp_path / "results").exists()

@@ -105,7 +105,7 @@ DRayTEannotator2 implements a multi-evidence TE classification framework integra
 * Pfam protein-domain annotation
 * ORF prediction
 * structural signatures
-* MMseqs2 reference rescue with optional reciprocal matching
+* MMseqs2 reference rescue using one-way similarity
 * RepeatMasker header homology
 * genomic copy support
 
@@ -129,7 +129,7 @@ Assignments are evaluated at:
 * minimum alignment length
 * minimum query coverage
 * minimum target coverage
-* reference-label agreement filtering and optional reciprocal support
+* reference-label agreement filtering
 * self-hit exclusion
 
 6. Hierarchical rescue is supported:
@@ -306,8 +306,7 @@ Supply a reference FASTA for classification rescue on the command line with:
 
 ```bash
 drayte --config config.yaml \
-  --mmseqs-rescue-db /path/to/Heliconius.classification.fa \
-  --mmseqs-rescue-mode one-way
+  --mmseqs-rescue-db /path/to/Heliconius.classification.fa
 ```
 
 This flag overrides `classification.mmseqs_rescue_db` in the YAML file while
@@ -316,12 +315,11 @@ is used. It selects classification evidence; it does not add the reference
 sequences directly to the final annotation library. The same option is also
 available on the standalone `drayte-classify` command.
 
-External-reference rescue defaults to one-way query-to-reference search. Several
+External-reference rescue uses one-way query-to-reference search. Several
 predicted consensuses can receive classification evidence from the same curated
 reference. Identity, alignment length and coverage filters still apply, and
 competitive reference matches must agree on the transferred classification.
-Use `--mmseqs-rescue-mode reciprocal` for strict mutual-best matching. The
-near-best score window defaults to 95% of the best bit score and can be changed
+The near-best score window defaults to 95% of the best bit score and can be changed
 with `--mmseqs-rescue-score-fraction`.
 Query and reference identifiers remain separate, and reference sequences are
 never added to the output family set. The search cache fingerprints both FASTAs
@@ -787,7 +785,7 @@ DRayTEannotator2 emphasises:
 * consensus reconstruction
 * evidence-aware classification
 * library refinement
-* reference rescue with optional reciprocal matching
+* reference rescue using one-way similarity
 * structural integration
 * post-annotation optimisation
 

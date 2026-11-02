@@ -201,9 +201,9 @@ def main():
 
     parser.add_argument(
         "--mmseqs-rescue-mode",
-        choices=("one-way", "reciprocal"),
-        default="one-way",
-        help="External-reference label transfer policy (default: one-way)",
+        choices=("one-way",),
+        default=None,
+        help=argparse.SUPPRESS,
     )
 
     parser.add_argument(
@@ -445,7 +445,7 @@ def main():
         mmseqs_rescue_evidence = None
         if args.mmseqs_rescue_db:
             reference = Path(args.mmseqs_rescue_db).expanduser().resolve()
-            log_step(f"MMseqs reference rescue: mode={args.mmseqs_rescue_mode}, query={Path(args.fasta).resolve()}, reference={reference}")
+            log_step(f"MMseqs reference rescue: query={Path(args.fasta).resolve()}, reference={reference}")
             external_rescue = run_reference_mmseqs_rescue(
                 query_fasta=args.fasta,
                 reference_fasta=reference,
@@ -456,19 +456,13 @@ def main():
                 min_aln_len=500,
                 min_query_cov=0.40,
                 min_target_cov=0.30,
-                mode=args.mmseqs_rescue_mode,
                 min_score_fraction=args.mmseqs_rescue_score_fraction,
             )
-            mmseqs_hits = (external_rescue.reciprocal_hits
-                           if args.mmseqs_rescue_mode == "reciprocal"
-                           else external_rescue.forward_hits)
+            mmseqs_hits = external_rescue.forward_hits
             mmseqs_rescue_evidence = external_rescue.evidence
             log_step(
                 "MMseqs reference rescue: "
-                f"mode={args.mmseqs_rescue_mode}, "
                 f"forward_alignments={len(external_rescue.forward_hits)}, "
-                f"reverse_alignments={len(external_rescue.reverse_hits)}, "
-                f"reciprocal_pairs={len(external_rescue.reciprocal_hits)}, "
                 f"families_with_rescue_evidence={len(external_rescue.evidence)}, "
                 f"cache_reused={external_rescue.report.get('cache_reused', False)}"
             )

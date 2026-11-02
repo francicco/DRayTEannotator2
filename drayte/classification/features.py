@@ -122,9 +122,8 @@ def build_families_from_evidence(
     if mmseqs_rescue_evidence is None:
         rescue_summary = infer_rescue_evidence(mmseqs_hits or [])
     else:
-        # External reciprocal searches already validated directionality. Never
-        # reapply the legacy within-library reciprocal test to forward hits,
-        # or introduce reference-only families into the output universe.
+        # External reference rescue already checked similarity and competing
+        # labels. Keep its evidence confined to the query family universe.
         unexpected = set(mmseqs_rescue_evidence) - set(lengths)
         if unexpected:
             raise ValueError("External rescue contains non-query families: " + ", ".join(sorted(unexpected)))

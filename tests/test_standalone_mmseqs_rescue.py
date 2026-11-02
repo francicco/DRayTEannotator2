@@ -53,7 +53,7 @@ def test_rescue_impact_does_not_claim_a_label_change_when_domains_override():
     }
 
 
-@pytest.mark.parametrize("mode", [None, "one-way", "reciprocal"])
+@pytest.mark.parametrize("mode", [None, "one-way"])
 def test_standalone_external_reference_uses_reference_api_despite_old_tsv(
     tmp_path, monkeypatch, capsys, mode,
 ):
@@ -70,7 +70,7 @@ def test_standalone_external_reference_uses_reference_api_despite_old_tsv(
     def reference_rescue(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            forward_hits=[object()], reverse_hits=[object()], reciprocal_hits=[object()],
+            forward_hits=[object()],
             evidence={"query": evidence()}, report={"cache_reused": False},
         )
 
@@ -88,7 +88,7 @@ def test_standalone_external_reference_uses_reference_api_despite_old_tsv(
     run.main()
     assert len(calls) == 1
     assert Path(calls[0]["reference_fasta"]) == reference
-    assert calls[0]["mode"] == (mode or "one-way")
+    assert "mode" not in calls[0]
     assert calls[0]["min_score_fraction"] == 0.95
     with output.open() as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
@@ -154,7 +154,7 @@ def test_standalone_passes_configured_score_fraction_and_rescues_multiple_querie
     def reference_rescue(**kwargs):
         calls.append(kwargs)
         return SimpleNamespace(
-            forward_hits=[object(), object()], reverse_hits=[], reciprocal_hits=[],
+            forward_hits=[object(), object()],
             evidence={name: evidence(name) for name in ("query", "query-2")},
             report={"cache_reused": False},
         )
@@ -166,9 +166,20 @@ def test_standalone_passes_configured_score_fraction_and_rescues_multiple_querie
         "--mmseqs-rescue-score-fraction", "0.9", "--output", str(output),
     ])
     run.main()
-    assert calls[0]["mode"] == "one-way"
+    assert "mode" not in calls[0]
     assert calls[0]["min_score_fraction"] == 0.9
     with output.open() as handle:
         rows = list(csv.DictReader(handle, delimiter="\t"))
     assert {row["family_id"] for row in rows} == {"query", "query-2"}
     assert all(row["order"] == "Helitron" for row in rows)
+
+
+def test_standalone_rejects_removed_reciprocal_option(monkeypatch):
+    monkeypatch.setattr(run, "run_reference_mmseqs_rescue", lambda **kwargs: pytest.fail("Unexpected search"))
+    monkeypatch.setattr(sys, "argv", [
+        "drayte-classify", "--fasta", "query.fa", "--mmseqs-rescue-db", "reference.fa",
+        "--mmseqs-rescue-mode", "reciprocal", "--output", "out.tsv",
+    ])
+    with pytest.raises(SystemExit) as error:
+        run.main()
+    assert error.value.code == 2

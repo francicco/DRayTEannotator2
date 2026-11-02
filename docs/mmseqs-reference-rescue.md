@@ -5,8 +5,7 @@ Use a classified TE FASTA as homology evidence for the families being classified
 ```bash
 drayte --config Hmel.drayannConfig.Assisted.yaml \
   --repeatmodeler-library "$RModelerFasta" \
-  --mmseqs-rescue-db "${HELICONIINILIB%.lib}.classification.fa" \
-  --mmseqs-rescue-mode one-way
+  --mmseqs-rescue-db "${HELICONIINILIB%.lib}.classification.fa"
 ```
 
 The reference flag overrides `classification.mmseqs_rescue_db` in the configuration.
@@ -19,11 +18,10 @@ established biological accuracy.
 
 ## One-way label transfer
 
-External-reference rescue defaults to `one-way`: classification-query FASTA
+External-reference rescue uses one-way matching: classification-query FASTA
 against the curated reference. Each query is assessed independently, so several
 predicted consensuses can receive classification evidence from the same
-reference family. The reference does not have to choose a query as its best
-reverse match. Query and reference identifiers remain separate, including when
+reference family. Query and reference identifiers remain separate, including when
 the same clean family name occurs in both libraries.
 
 The search prefilter remains at 75% identity and 50% coverage of both sequences. Retained alignment
@@ -56,28 +54,12 @@ superfamily. It does not establish that the query and reference are the same
 biological TE family. A local match can cover a shared domain or only part of a
 consensus. Exact family delimitation needs its own criteria and validation.
 
-## Optional reciprocal mode
-
-Use `--mmseqs-rescue-mode reciprocal`, or
-`classification.mmseqs_rescue_mode: reciprocal`, to reproduce the stricter
-matching policy. It runs two searches and requires unique mutual best matches.
-Equal-ranked different partners are rejected. The reverse search applies the
-coverage thresholds with the query/reference roles swapped.
-
-This is a conservative comparison mode: several predicted families may strongly
-match one curated family, while only one is its best reverse match. The mode and
-near-best score fraction are recorded in search provenance. In reciprocal mode,
-the score fraction does not alter the strict mutual-best criterion.
-
 ## Search outputs and evidence
 
 Integrated runs write these files under `<outdir>/classification/mmseqs/`:
 
 - `mmseqs_rescue.tsv`: query-to-reference search alignments, before retained-hit
   filtering.
-- `mmseqs_rescue.reverse.tsv`: reference-to-query alignments in reciprocal mode.
-  An older reverse file may remain on disk after switching to one-way mode; it
-  is not used or treated as current evidence by that mode.
 - `mmseqs_rescue.log`: actual commands and full MMseqs output.
 - `mmseqs_rescue.checkpoint.json`: completion state, input signatures and current
   output hashes.
@@ -104,15 +86,21 @@ labels are in `<species>.classifications.tsv` and the classified FASTA.
 ## Cache validation and older assisted runs
 
 Input FASTA contents, search/filter settings, transfer policy, executable and
-algorithm version are part of the signed search cache. One-way mode requires
-a completed, verified forward search; reciprocal mode requires both directions.
+algorithm version are part of the signed search cache. Rescue requires
+a completed, verified query-to-reference search.
 Valid empty searches can be reused. Changing CPU count alone does not change
 the evidence signature. An isolated TSV without a matching completed checkpoint
 cannot authorize cached reference rescue. Failed or interrupted searches cannot
 authorize complete results.
 
-Update the checkout, then rerun against the same output directory with the
-desired policy:
+Completed version 2 one-way checkpoints remain reusable. Historical reciprocal
+results are refreshed using the current one-way policy. Older reverse-search
+files remain untouched and are never read or required. A legacy
+`classification.mmseqs_rescue_mode: reciprocal` setting is ignored with a warning.
+The previously supplied `--mmseqs-rescue-mode one-way` command is accepted for
+compatibility; no selector is needed for current commands.
+
+Update the checkout, then rerun against the same output directory:
 
 ```bash
 git -C /user/work/tk19812/software/DRayTEannotator2 pull \
@@ -120,8 +108,7 @@ git -C /user/work/tk19812/software/DRayTEannotator2 pull \
 
 drayte --config Hmel.drayannConfig.Assisted.yaml \
   --repeatmodeler-library Hmel_Earlgrey/Hmel_EarlGrey/Hmel_Database/Hmel-families.fa \
-  --mmseqs-rescue-db Heliconius.classification.fa \
-  --mmseqs-rescue-mode one-way
+  --mmseqs-rescue-db Heliconius.classification.fa
 ```
 
 The pipeline refreshes affected classification and downstream annotation
@@ -142,12 +129,11 @@ accuracy, and report detection coverage separately from classification agreement
 
 ## Standalone classifier
 
-The same policies are available with a consensus FASTA:
+The same matching policy is available with a consensus FASTA:
 
 ```bash
 drayte-classify --fasta TE_library.fa \
   --mmseqs-rescue-db Heliconius.classification.fa \
-  --mmseqs-rescue-mode one-way \
   --mmseqs-rescue-score-fraction 0.95 \
   --mmseqs-outdir classification_mmseqs \
   --output classifications.tsv --evidence-output evidence.tsv

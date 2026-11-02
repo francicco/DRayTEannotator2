@@ -231,98 +231,21 @@ def best_mmseqs_hits_by_family(
             best[hit.query_id] = hit
 
     return best
-def reciprocal_best_hits(
-    hits: List[MMseqsHit],
-) -> List[MMseqsHit]:
-
-    best = best_mmseqs_hits_by_family(hits)
-
-    reciprocal = []
-
-    for hit in hits:
-
-        target_best = best.get(hit.target_id)
-
-        if target_best is None:
-            continue
-
-        if (
-            target_best.target_id == hit.query_id
-        ):
-            reciprocal.append(hit)
-
-    return reciprocal
-
 def infer_rescue_evidence(
     hits: List[MMseqsHit],
     *,
-    reciprocal_prevalidated: bool = False,
+    min_score_fraction: float = 0.95,
 ) -> dict[str, RescueEvidence]:
-
-    reciprocal_hits = hits if reciprocal_prevalidated else reciprocal_best_hits(hits)
-
-    classified_hits = []
-
-    for hit in reciprocal_hits:
-        hom = homology_from_repeatmasker_header(
-            hit.target_header
-        )
-
-        if hom is None:
-            continue
-
-        if hom.homology_order == "Unknown":
-            continue
-
-        classified_hits.append(hit)
-
-    best_hits = best_mmseqs_hits_by_family(
-        reciprocal_hits
+    """Infer consistent labels from qualified one-way similarity hits."""
+    evidence, _ = infer_one_way_rescue_evidence(
+        hits, min_score_fraction=min_score_fraction,
     )
-
-    rescue = {}
-
-    for family_id, hit in best_hits.items():
-        hom = homology_from_repeatmasker_header(
-            hit.target_header
-        )
-
-        if hom is None:
-            continue
-
-        if hom.homology_order == "Unknown":
-            continue
-
-        if (
-            hit.identity >= 0.80
-            and hit.query_cov >= 0.80
-            and hit.target_cov >= 0.80
-        ):
-            rescue_superfamily = hom.homology_superfamily
-        else:
-            rescue_superfamily = "Unknown"
-
-        rescue[family_id] = RescueEvidence(
-            family_id=family_id,
-            rescue_class=hom.homology_class,
-            rescue_order=hom.homology_order,
-            rescue_superfamily=rescue_superfamily,
-            rescue_identity=hit.identity,
-            rescue_aln_len=hit.aln_len,
-            rescue_query_cov=hit.query_cov,
-            rescue_target_cov=hit.target_cov,
-            rescue_bits=hit.bits,
-            rescue_target=hit.target_header,
-        )
-
-    return rescue
+    return evidence
 
 
 @dataclass
 class ExternalRescueResult:
     forward_hits: list[MMseqsHit]
-    reverse_hits: list[MMseqsHit]
-    reciprocal_hits: list[MMseqsHit]
     evidence: dict[str, RescueEvidence]
     report: dict
 
@@ -360,33 +283,6 @@ def _external_lengths(fasta: Path) -> dict[str, int]:
     if not lengths:
         raise ValueError(f"MMseqs FASTA contains no records: {fasta}")
     return lengths
-
-
-def strict_external_reciprocal_hits(
-    forward_hits: list[MMseqsHit], reverse_hits: list[MMseqsHit],
-) -> list[MMseqsHit]:
-    """Return query-side best pairs using independent library namespaces.
-
-    Equal-ranked different partners are ambiguous and do not support rescue.
-    The historical self-library reciprocal filter remains unchanged.
-    """
-    def unique_best(hits):
-        groups = {}
-        for hit in hits:
-            groups.setdefault(hit.query_id, []).append(hit)
-        best = {}
-        for family_id, candidates in groups.items():
-            rank = lambda hit: (hit.bits, hit.identity, hit.query_cov, hit.aln_len)
-            highest = max(map(rank, candidates))
-            top = [hit for hit in candidates if rank(hit) == highest]
-            if len({hit.target_id for hit in top}) == 1:
-                best[family_id] = top[0]
-        return best
-
-    forward = unique_best(forward_hits)
-    reverse = unique_best(reverse_hits)
-    return [hit for family_id, hit in sorted(forward.items())
-            if hit.target_id in reverse and reverse[hit.target_id].target_id == family_id]
 
 
 def _hit_summary(hit: MMseqsHit) -> dict:
@@ -489,17 +385,14 @@ def _run_reference_mmseqs_rescue(
     min_target_cov: float = 0.30,
     logger=None,
     *,
-    mode: str = "one-way",
     min_score_fraction: float = 0.95,
 ) -> ExternalRescueResult:
     """Search a classified reference and publish validated query-side rescue.
 
-    Each library has its own ID namespace. A complete checkpoint fingerprints
-    both input files, the required directional outputs and all result-affecting
-    search and filtering settings. Unverified legacy TSVs are never adopted.
+    Each library has its own ID namespace. The complete checkpoint fingerprints
+    both input files, the forward search output and all result-affecting search
+    and filtering settings. Unverified legacy TSVs are never adopted.
     """
-    if mode not in {"one-way", "reciprocal"}:
-        raise ValueError("MMseqs rescue mode must be 'one-way' or 'reciprocal'")
     if not math.isfinite(min_score_fraction) or not 0 < min_score_fraction <= 1:
         raise ValueError("MMseqs min_score_fraction must be finite and in (0, 1]")
     query = Path(query_fasta).expanduser().resolve()
@@ -509,11 +402,10 @@ def _run_reference_mmseqs_rescue(
         raise ValueError(f"Refusing a symlinked MMseqs output directory: {directory}")
     directory.mkdir(parents=True, exist_ok=True)
     forward_path = directory / "mmseqs_rescue.tsv"
-    reverse_path = directory / "mmseqs_rescue.reverse.tsv"
     checkpoint = directory / "mmseqs_rescue.checkpoint.json"
     report_path = directory / "mmseqs_rescue.report.json"
     log_path = directory / "mmseqs_rescue.log"
-    for path in (forward_path, reverse_path, checkpoint, report_path, log_path):
+    for path in (forward_path, checkpoint, report_path, log_path):
         if path.is_symlink():
             raise ValueError(f"Refusing a symlinked MMseqs managed output: {path}")
     for name, value in (("min_identity", min_identity), ("min_query_cov", min_query_cov),
@@ -525,7 +417,6 @@ def _run_reference_mmseqs_rescue(
     query_hash, reference_hash = _sha256(query), _sha256(reference)
     query_lengths = _external_lengths(query)
     reference_lengths = _external_lengths(reference)
-    query_headers = {clean_family_id(record.id): record.id for record in SeqIO.parse(str(query), "fasta")}
     reference_headers = {clean_family_id(record.id): record.id for record in SeqIO.parse(str(reference), "fasta")}
     if _sha256(query) != query_hash or _sha256(reference) != reference_hash:
         raise RuntimeError("MMseqs rescue input changed while reading FASTA metadata")
@@ -535,31 +426,27 @@ def _run_reference_mmseqs_rescue(
                          "min_query_cov": min_query_cov, "min_target_cov": min_target_cov,
                          "min_score_fraction": min_score_fraction}
     signature = {"algorithm_version": EXTERNAL_RESCUE_ALGORITHM_VERSION,
-                 "mode": mode,
+                 "mode": "one-way",
                  "query_fasta": str(query), "reference_fasta": str(reference),
                  "query_sha256": query_hash, "reference_sha256": reference_hash,
                  "mmseqs_bin": str(mmseqs_bin), "search_parameters": search_parameters,
                  "filter_parameters": filter_parameters}
 
-    def parse_paths(forward, reverse):
-        common = {"min_identity": min_identity, "min_aln_len": min_aln_len,
-                  "skip_self": False, "strict": True}
-        first = parse_mmseqs_tsv(forward, query_lengths, reference_lengths,
-                                min_query_cov=min_query_cov, min_target_cov=min_target_cov, **common)
-        second = (parse_mmseqs_tsv(reverse, reference_lengths, query_lengths,
-                                  min_query_cov=min_target_cov, min_target_cov=min_query_cov, **common)
-                  if mode == "reciprocal" else [])
+    def parse_forward(forward):
+        retained = parse_mmseqs_tsv(
+            forward, query_lengths, reference_lengths, min_identity=min_identity,
+            min_aln_len=min_aln_len, min_query_cov=min_query_cov,
+            min_target_cov=min_target_cov, skip_self=False, strict=True,
+        )
         raw_forward = parse_mmseqs_tsv(
             forward, query_lengths, reference_lengths, min_identity=0,
             min_aln_len=1, skip_self=False, strict=True,
         )
-        # Classification labels come from the signed FASTA, not from a tool's
-        # representation/truncation of its target identifier.
-        for hit in first + raw_forward:
+        # The signed FASTA supplies labels, independent of a tool's header
+        # representation or truncation.
+        for hit in retained + raw_forward:
             hit.target_header = reference_headers[hit.target_id]
-        for hit in second:
-            hit.target_header = query_headers[hit.target_id]
-        return first, second, raw_forward
+        return retained, raw_forward
 
     def inputs_unchanged():
         return _sha256(query) == signature["query_sha256"] and _sha256(reference) == signature["reference_sha256"]
@@ -570,24 +457,16 @@ def _run_reference_mmseqs_rescue(
             value = json.loads(checkpoint.read_text())
             if (value.get("status") == "complete" and value.get("input_signature") == signature
                     and forward_path.is_file()
-                    and value.get("forward_sha256") == _sha256(forward_path)
-                    and (mode != "reciprocal" or (reverse_path.is_file()
-                         and value.get("reverse_sha256") == _sha256(reverse_path)))):
-                cached = parse_paths(forward_path, reverse_path)
+                    and value.get("forward_sha256") == _sha256(forward_path)):
+                cached = parse_forward(forward_path)
         except (OSError, ValueError, TypeError, AttributeError):
             cached = None
 
     def result_for(hits, reused):
-        forward_hits, reverse_hits, raw_forward = hits
-        reciprocal = (strict_external_reciprocal_hits(forward_hits, reverse_hits)
-                      if mode == "reciprocal" else [])
-        if mode == "one-way":
-            evidence, decisions = infer_one_way_rescue_evidence(
-                forward_hits, min_score_fraction=min_score_fraction,
-            )
-        else:
-            evidence = infer_rescue_evidence(reciprocal, reciprocal_prevalidated=True)
-            decisions = {}
+        forward_hits, raw_forward = hits
+        evidence, decisions = infer_one_way_rescue_evidence(
+            forward_hits, min_score_fraction=min_score_fraction,
+        )
         raw_by_query = {}
         for hit in raw_forward:
             raw_by_query.setdefault(hit.query_id, []).append(hit)
@@ -608,19 +487,16 @@ def _run_reference_mmseqs_rescue(
                 ):
                     if actual < minimum:
                         failed.append(name)
-                if mode == "one-way" and hit.bits <= 0:
+                if hit.bits <= 0:
                     failed.append("nonpositive_bit_score")
                 if failed:
                     rejected.append({**_hit_summary(hit), "failed_filters": failed})
             decision = decisions.setdefault(family_id, {
-                "status": "rescued" if family_id in evidence else "not_rescued",
-                "selected_target": evidence[family_id].rescue_target if family_id in evidence else None,
+                "status": "not_rescued", "selected_target": None,
                 "qualified_targets": len({hit.target_id for hit in qualified}),
                 "near_best_targets": [],
-                "reason": ("reciprocal_support" if family_id in evidence else
-                           "no_search_hit" if not raw else
+                "reason": ("no_search_hit" if not raw else
                            "no_qualified_hit" if not qualified else
-                           "no_recognized_reciprocal_support" if mode == "reciprocal" else
                            "no_positive_bit_score"),
             })
             decision.update(raw_hit_rows=len(raw), qualified_hit_rows=len(qualified),
@@ -628,17 +504,14 @@ def _run_reference_mmseqs_rescue(
         if not set(evidence).issubset(query_lengths):
             raise RuntimeError("External-reference IDs leaked into query rescue evidence")
         report = {**signature, "forward_tsv": str(forward_path),
-                  "reverse_tsv": str(reverse_path) if mode == "reciprocal" else None,
                   "forward_sha256": _sha256(forward_path),
-                  "reverse_sha256": _sha256(reverse_path) if mode == "reciprocal" else None,
-                  "forward_hits": len(forward_hits), "reverse_hits": len(reverse_hits),
-                  "reciprocal_pairs": len(reciprocal), "rescued_families": len(evidence),
+                  "forward_hits": len(forward_hits), "rescued_families": len(evidence),
                   "families_with_rescue": len(evidence),
                   "cache_reused": reused, "threads": threads, "report_path": str(report_path),
                   "query_families": len(query_lengths), "reference_families": len(reference_lengths),
                   "query_decisions": decisions,
                   "checkpoint": str(checkpoint), "checkpoint_path": str(checkpoint), "log_path": str(log_path)}
-        return ExternalRescueResult(forward_hits, reverse_hits, reciprocal, evidence, report)
+        return ExternalRescueResult(forward_hits, evidence, report)
 
     if cached is not None:
         if not inputs_unchanged():
@@ -646,58 +519,50 @@ def _run_reference_mmseqs_rescue(
         result = result_for(cached, True)
         _atomic_json(report_path, result.report)
         if logger:
-            logger.info("Validated %s MMseqs cache: query=%s reference=%s", mode, query, reference)
+            logger.info("Validated one-way MMseqs cache: query=%s reference=%s", query, reference)
         return result
 
     if logger:
-        logger.info("Running %s MMseqs rescue: query=%s reference=%s", mode, query, reference)
+        logger.info("Running one-way MMseqs rescue: query=%s reference=%s", query, reference)
     _atomic_json(checkpoint, {"status": "running", "input_signature": signature})
     published = False
     with tempfile.TemporaryDirectory(prefix=".reference-", dir=directory) as temporary:
         work = Path(temporary)
         backups = {}
-        outputs = ((forward_path, reverse_path, report_path) if mode == "reciprocal"
-                   else (forward_path, report_path))
+        outputs = (forward_path, report_path)
         for index, path in enumerate(outputs):
             backup = work / f"backup-{index}"
             if path.exists():
                 shutil.copy2(path, backup)
                 backups[path] = backup
         try:
-            forward_tmp, reverse_tmp = work / "forward.tsv", work / "reverse.tsv"
+            forward_tmp = work / "forward.tsv"
             with log_path.open("a") as log:
                 log.write(f"\nAttempt {datetime.now(timezone.utc).isoformat()}\n")
-                directions = [("query_to_reference", query, reference, forward_tmp)]
-                if mode == "reciprocal":
-                    directions.append(("reference_to_query", reference, query, reverse_tmp))
-                for direction, first, second, output in directions:
-                    command = [str(mmseqs_bin), "easy-search", str(first), str(second), str(output),
-                               str(work / (direction + "_tmp")), "--search-type", "3",
-                               "--min-seq-id", "0.75", "-c", "0.5", "--cov-mode", "0",
-                               "--threads", str(threads), "--format-output", MMSEQS_OUTPUT_FORMAT]
-                    log.write(direction + ": " + json.dumps(command) + "\n")
-                    log.flush()
-                    subprocess.run(command, check=True, stdout=log, stderr=log)
-                    if not output.is_file():
-                        raise RuntimeError(f"MMseqs did not create its {direction} result: {output}")
-            hits = parse_paths(forward_tmp, reverse_tmp)
+                command = [str(mmseqs_bin), "easy-search", str(query), str(reference),
+                           str(forward_tmp), str(work / "query_to_reference_tmp"),
+                           "--search-type", "3", "--min-seq-id", "0.75", "-c", "0.5",
+                           "--cov-mode", "0", "--threads", str(threads),
+                           "--format-output", MMSEQS_OUTPUT_FORMAT]
+                log.write("query_to_reference: " + json.dumps(command) + "\n")
+                log.flush()
+                subprocess.run(command, check=True, stdout=log, stderr=log)
+                if not forward_tmp.is_file():
+                    raise RuntimeError(f"MMseqs did not create its query_to_reference result: {forward_tmp}")
+            hits = parse_forward(forward_tmp)
             if not inputs_unchanged():
                 raise RuntimeError("MMseqs rescue input changed during search")
-            # Backups above permit rollback if publication fails after the first
-            # rename. An incomplete marker can never authorize a mixed pair.
+            # Backups above permit rollback if publication fails after a rename.
+            # An incomplete marker can never authorize an unpublished result.
             published = True
             os.replace(forward_tmp, forward_path)
-            if mode == "reciprocal":
-                os.replace(reverse_tmp, reverse_path)
             result = result_for(hits, False)
             _atomic_json(report_path, result.report)
             _atomic_json(checkpoint, {"status": "complete", "input_signature": signature,
-                                     "forward_sha256": result.report["forward_sha256"],
-                                     "reverse_sha256": result.report["reverse_sha256"]})
+                                     "forward_sha256": result.report["forward_sha256"]})
             if logger:
-                logger.info("MMseqs rescue (%s): forward=%d reverse=%d reciprocal=%d families_with_evidence=%d",
-                            mode, len(result.forward_hits), len(result.reverse_hits),
-                            len(result.reciprocal_hits), len(result.evidence))
+                logger.info("MMseqs rescue (one-way): forward=%d families_with_evidence=%d",
+                            len(result.forward_hits), len(result.evidence))
             return result
         except BaseException as error:
             if published:
@@ -726,14 +591,9 @@ def run_reference_mmseqs_rescue(
     min_target_cov: float = 0.30,
     logger=None,
     *,
-    mode: str = "one-way",
     min_score_fraction: float = 0.95,
 ) -> ExternalRescueResult:
-    """Run or reuse signed reference rescue under a lock.
-
-    The default transfers consistent labels from one-way homology. Explicit
-    ``mode='reciprocal'`` retains the earlier mutual-best restriction.
-    """
+    """Run or reuse signed one-way reference rescue under a lock."""
     directory = Path(outdir).expanduser().absolute()
     if directory.is_symlink():
         raise ValueError(f"Refusing a symlinked MMseqs output directory: {directory}")
@@ -750,27 +610,7 @@ def run_reference_mmseqs_rescue(
             return _run_reference_mmseqs_rescue(
                 query_fasta, reference_fasta, directory, mmseqs_bin, threads,
                 min_identity, min_aln_len, min_query_cov, min_target_cov, logger,
-                mode=mode, min_score_fraction=min_score_fraction,
+                min_score_fraction=min_score_fraction,
             )
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
-
-
-def run_reciprocal_mmseqs_rescue(
-    query_fasta: str | Path,
-    reference_fasta: str | Path,
-    outdir: str | Path,
-    mmseqs_bin: str = "mmseqs",
-    threads: int = 1,
-    min_identity: float = 0.80,
-    min_aln_len: int = 500,
-    min_query_cov: float = 0.40,
-    min_target_cov: float = 0.30,
-    logger=None,
-) -> ExternalRescueResult:
-    """Compatibility API for explicit reciprocal reference rescue."""
-    return run_reference_mmseqs_rescue(
-        query_fasta, reference_fasta, outdir, mmseqs_bin, threads,
-        min_identity, min_aln_len, min_query_cov, min_target_cov, logger,
-        mode="reciprocal",
-    )

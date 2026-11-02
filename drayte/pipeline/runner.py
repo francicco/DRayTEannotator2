@@ -47,8 +47,8 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--mmseqs-rescue-mode", choices=("one-way", "reciprocal"), default=None,
-        help="Override classification.mmseqs_rescue_mode; external references default to one-way label transfer.",
+        "--mmseqs-rescue-mode", choices=("one-way",), default=None,
+        help=argparse.SUPPRESS,
     )
     parser.add_argument(
         "--mmseqs-rescue-score-fraction", type=float, default=None,
@@ -140,11 +140,10 @@ def log_final_results(
         classification_result.get("n_classified", "unavailable"),
         classification_result.get("n_unknown", "unavailable"),
     )
-    rescue = classification_result.get("mmseqs_reference_rescue", classification_result.get("mmseqs_reciprocal_rescue"))
+    rescue = classification_result.get("mmseqs_reference_rescue")
     impact = classification_result.get("mmseqs_rescue_impact")
     if isinstance(rescue, dict) and isinstance(impact, dict):
         logger.info("  Rescue reference: %s", rescue.get("reference_fasta", "unavailable"))
-        logger.info("  Rescue mode: %s", rescue.get("mode", "reciprocal"))
         logger.info("  Reference evidence: %s families; %s final labels changed; %s previously Unknown rescued",
                     impact.get("families_with_rescue_evidence", 0),
                     impact.get("classifications_changed_by_rescue", 0),
@@ -250,14 +249,15 @@ def main() -> None:
                 Path(args.mmseqs_rescue_db).expanduser().resolve()
             )
         if args.mmseqs_rescue_mode is not None:
-            classification_cfg["mmseqs_rescue_mode"] = args.mmseqs_rescue_mode
+            # Accept the previous one-way command without retaining a selector.
+            classification_cfg.pop("mmseqs_rescue_mode", None)
         if args.mmseqs_rescue_score_fraction is not None:
             fraction = args.mmseqs_rescue_score_fraction
             if not math.isfinite(fraction) or not 0 < fraction <= 1:
                 raise ValueError("--mmseqs-rescue-score-fraction must be greater than 0 and at most 1")
             classification_cfg["mmseqs_rescue_score_fraction"] = fraction
         if not classification_cfg.get("mmseqs_rescue_db"):
-            raise ValueError("--mmseqs-rescue-mode and --mmseqs-rescue-score-fraction require a reference FASTA via --mmseqs-rescue-db or classification.mmseqs_rescue_db")
+            raise ValueError("Reference rescue options require a reference FASTA via --mmseqs-rescue-db or classification.mmseqs_rescue_db")
     if args.storage_mode is not None:
         settings = config.extra.get("storage")
         if settings is None:
