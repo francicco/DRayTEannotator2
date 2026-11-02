@@ -198,7 +198,9 @@ def test_repeatmasker_stage_logs_raw_output_and_preserves_arguments_and_outputs(
         else stage_inputs.library
     )
     assert args[args.index("-lib") + 1] == str(expected_library)
-    assert all(option in args for option in ["-s", "-xsmall", "-gc", "-gff", "-norna"])
+    assert all(option in args for option in ["-s", "-xsmall", "-gff", "-norna"])
+    assert "-gc" not in args
+    assert "-gccalc" not in args
     if stage == "final":
         assert "-a" in args
         assert f"CWD={stage_inputs.genome.parent}" in text

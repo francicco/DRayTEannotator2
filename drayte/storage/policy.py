@@ -62,9 +62,9 @@ def repeatmasker_contexts(config):
     final = read_manifest(root / "classification/classification.manifest.json")
     for stage, relative, library, flags in (
         ("initial", "discovery/rmasker_dir", root / "discovery/rmodeler_dir/consensi.fa.classified",
-         ["-xsmall", "-gc", "-gff", "-norna", "-s"]),
+         ["-xsmall", "-gff", "-norna", "-s"]),
         ("final", "final_annotation", Path(final["classified_library"]),
-         ["-s", "-xsmall", "-gc", "-gff", "-norna", "-a"]),
+         ["-s", "-xsmall", "-gff", "-norna", "-a"]),
     ):
         directory = root / relative
         suffixes = (".out", ".tbl") if stage == "initial" else (".out", ".tbl", ".masked", ".cat.gz", ".align")

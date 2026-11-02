@@ -73,7 +73,7 @@ def run(config, curation_result: dict, logger) -> dict:
     required = [out, tbl, masked, cat_gz, align]
     checkpoint = checkpoint_path(outdir)
     options = [str(config.extra.get("repeatmasker_bin", "RepeatMasker")),
-               "-s", "-xsmall", "-gc", "-gff", "-norna", "-a"]
+               "-s", "-xsmall", "-gff", "-norna", "-a"]
     signature = input_signature(genome_fa, final_library, options)
     outputs_current = checkpoint_is_valid(checkpoint, signature, required)
     if (not checkpoint.exists() and outputs_exist
@@ -94,7 +94,6 @@ def run(config, curation_result: dict, logger) -> dict:
             str(config.extra.get("repeatmasker_bin", "RepeatMasker")),
             "-s",
             "-xsmall",
-            "-gc",
             "-gff",
             "-norna",
             "-a",

@@ -529,7 +529,7 @@ def run_step1(
     logger.info("Step 4/4: checking/running RepeatMasker")
     repeatmasker_log = rmasker_dir / f"{species}.RepeatMasker.log"
     checkpoint = checkpoint_path(rmasker_dir)
-    options = [str(repeatmasker_bin), "-xsmall", "-gc", "-gff", "-norna", "-s"]
+    options = [str(repeatmasker_bin), "-xsmall", "-gff", "-norna", "-s"]
     signature = input_signature(genome_fa, copied_consensi, options)
     required = [rmasker_dir / f"{species}.fa{suffix}" for suffix in (".out", ".tbl")]
     reusable = checkpoint_is_valid(checkpoint, signature, required)
@@ -558,7 +558,6 @@ def run_step1(
             [
                 str(repeatmasker_bin),
                 "-xsmall",
-                "-gc",
                 "-gff",
                 "-norna",
                 "-pa",

@@ -10,7 +10,7 @@ from drayte.pipeline.config import PipelineConfig
 from drayte.storage.archive import ArchiveStore
 from drayte.storage.policy import (
     assert_safe_deletions, cleanup_stage_scratch, compact_completed_extension, compact_run, output_lock,
-    plan_compaction, storage_mode, validate_completed_run,
+    plan_compaction, repeatmasker_contexts, storage_mode, validate_completed_run,
 )
 from drayte.utils.repeatmasker_checkpoint import input_signature, write_checkpoint
 
@@ -70,7 +70,7 @@ def completed_run(tmp_path):
     write("final_annotation/final_annotation.manifest.json", json.dumps({"repeatmasker_out": str(final[0])}))
     write_checkpoint(root / "final_annotation/repeatmasker.checkpoint.json",
                      input_signature(genome, final_library,
-                                     ["RepeatMasker", "-s", "-xsmall", "-gc", "-gff", "-norna", "-a"]), final)
+                                     ["RepeatMasker", "-s", "-xsmall", "-gff", "-norna", "-a"]), final)
     for name in ("annotation_refinement.tsv", "filteredRepeats.tsv", "annotation_refinement.stats.tsv"):
         write("Defragmenting_RModAnnotation/Test." + name, "complete\n")
     write("Defragmenting_RModAnnotation/Test.annotation_refinement.manifest.json",
@@ -116,12 +116,43 @@ def test_legacy_repeatmasker_adoption_survives_compact_restore(completed_run):
     with output_lock(root):
         compact_run(config, logging.getLogger("test.storage"))
         assert json.loads(marker.read_text())["legacy_adopted"]
+        for relative, flags in (
+            ("discovery/rmasker_dir", ["-xsmall", "-gff", "-norna", "-s"]),
+            ("final_annotation", ["-s", "-xsmall", "-gff", "-norna", "-a"]),
+        ):
+            adopted = json.loads((root / relative / "repeatmasker.checkpoint.json").read_text())
+            assert adopted["legacy_adopted"]
+            assert adopted["input_signature"]["options"] == ["RepeatMasker", *flags]
         ArchiveStore(root).restore_all()
     library = root / "classification/Test.classified.fa"
     library.write_text(library.read_text())
     # A missing RepeatMasker executable would fail if restore caused a rerun.
     result = final_annotation.run(config, {"classified_library": str(library)}, logging.getLogger("test.storage"))
     assert Path(result["repeatmasker_out"]).is_file()
+
+
+@pytest.mark.parametrize("stage", ["initial", "final"])
+def test_signed_old_gc_checkpoint_prevents_compaction(completed_run, stage):
+    config = completed_run
+    root = config.outdir_path
+    for name, directory, library, outputs, options in repeatmasker_contexts(config):
+        if name == stage:
+            options.insert(options.index("-gff"), "-gc")
+            marker = directory / "repeatmasker.checkpoint.json"
+            write_checkpoint(
+                marker,
+                input_signature(root / "discovery/assemblies_dir/Test.fa", library, options),
+                outputs,
+            )
+            before = marker.read_bytes()
+            break
+
+    with pytest.raises(ValueError, match="invalid RepeatMasker completion record"):
+        compact_run(config, logging.getLogger("test.storage"))
+
+    assert marker.read_bytes() == before
+    assert (root / "discovery/rmodeler_dir/RM_old").is_dir()
+    assert (root / "extension/extensionwork").is_dir()
 
 
 def test_incomplete_run_keeps_scratch_and_evidence(completed_run):

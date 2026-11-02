@@ -42,6 +42,7 @@ environment.
 
 ```bash
 command -v python drayte RepeatMasker RepeatModeler RepeatClassifier rmblastn
+python -c 'import sys, h5py; print(sys.executable); print("h5py", h5py.__version__)'
 RepeatMasker -version
 RepeatModeler -version
 rmblastn -version
@@ -146,6 +147,33 @@ Only submit new comparison runs after these tool paths and database inputs
 have been verified. A successful environment solve or `--help` invocation does
 not establish that the complete biological pipeline has run successfully.
 
+## FamDB cannot import h5py
+
+`ModuleNotFoundError: No module named 'h5py'` from `famdb.py` means the Python
+selected for FamDB lacks its HDF5 dependency. This can happen when the old
+DrayAnn virtual environment is active while the YAML selects external tools
+from `earlgrey731`. Changing `repeatmasker_bin` alone does not select the
+Python that FamDB needs.
+
+The dedicated environment includes `h5py`. Verify it without activating the
+old virtual environment:
+
+```bash
+micromamba run -n drayann731 python -c \
+  'import sys, h5py; print(sys.executable); print("h5py", h5py.__version__)'
+```
+
+Launch DrayAnn through `micromamba run -n drayann731 drayte` with the copied
+configuration pointing to that same environment. If `drayann731` does not yet
+exist, complete the creation and editable installation above first. A missing
+Python module does not require downloading the Dfam data again.
+
+The pipeline also now omits the previous bare `-gc` argument from both
+RepeatMasker stages. RepeatMasker requires a value for `-gc`; without one it
+can consume the following `-gff` argument. The corrected command uses
+RepeatMasker's default matrix selection and retains `-gff`. It does not force
+`-gccalc`. Checkpoints signed with the old argument list will be rerun.
+
 ## Sources
 
 - [RepeatMasker Bioconda recipe](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/repeatmasker/meta.yaml)
@@ -153,3 +181,4 @@ not establish that the complete biological pipeline has run successfully.
 - [RMBlast build and 2.17.1 patch](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/rmblast/meta.yaml)
 - [Micromamba explicit specifications](https://mamba.readthedocs.io/en/stable/user_guide/micromamba.html#explicit-spec-files)
 - [FamDB 3.0 documentation](https://github.com/Dfam-consortium/FamDB/blob/3.0.0/README.md)
+- [RepeatMasker 4.2.4 option parser](https://github.com/Dfam-consortium/RepeatMasker/blob/3f49a049c7a7e843b2da1b708fe06bb39c90035b/RepeatMasker#L392)
