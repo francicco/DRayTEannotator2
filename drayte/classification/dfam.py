@@ -34,6 +34,21 @@ class DfamHit:
     dfam_order: str = "Unknown"
     dfam_superfamily: str = "Unknown"
     dfam_ct: str = ""
+    hmm_start: int = 0
+    hmm_end: int = 0
+    query_length: int = 0
+    model_length: int = 0
+    curated: bool | None = None
+    threshold: float | None = None
+    threshold_source: str = "missing"
+
+    @property
+    def query_coverage(self) -> float:
+        return (abs(self.ali_end - self.ali_start) + 1) / self.query_length if self.query_length else 0.0
+
+    @property
+    def model_coverage(self) -> float:
+        return (abs(self.hmm_end - self.hmm_start) + 1) / self.model_length if self.model_length else 0.0
 
 
 def _sha256_file(path: Path) -> str:
@@ -182,6 +197,7 @@ def run_nhmmer(
     tblout: str | Path,
     nhmmer_bin: str = "nhmmer",
     cpu: int = 1,
+    db_size_mb: float | None = None,
 ) -> Path:
     tblout = Path(tblout)
     tblout.parent.mkdir(parents=True, exist_ok=True)
@@ -197,6 +213,9 @@ def run_nhmmer(
         str(dfam_db),
         str(consensus_fasta),
     ]
+
+    if db_size_mb is not None:
+        cmd[1:1] = ["-Z", str(db_size_mb)]
 
     try:
         with open(partial_log, "w") as log:
@@ -227,6 +246,8 @@ def parse_nhmmer_tblout(
 
     hits: List[DfamHit] = []
     dfam_metadata = dfam_metadata or {}
+    metadata_by_accession = {m.get("accession"): m for m in dfam_metadata.values()
+                             if m.get("accession")}
 
     with open(tblout) as fh:
         for line in fh:
@@ -253,6 +274,8 @@ def parse_nhmmer_tblout(
                 continue
 
             meta = dfam_metadata.get(model_name, {})
+            if not meta:
+                meta = metadata_by_accession.get(accession, {})
 
             hits.append(
                 DfamHit(
@@ -270,6 +293,10 @@ def parse_nhmmer_tblout(
                         "Unknown",
                     ),
                     dfam_ct=meta.get("dfam_ct", ""),
+                    hmm_start=int(parts[4]), hmm_end=int(parts[5]),
+                    query_length=int(parts[10]), model_length=int(meta.get("model_length", 0)),
+                    curated=meta.get("curated"), threshold=meta.get("ga"),
+                    threshold_source="GA" if meta.get("ga") is not None else "missing",
                 )
             )
 
@@ -320,6 +347,7 @@ def run_nhmmer_parallel_chunks(
     nhmmer_bin: str = "nhmmer",
     cpu_per_job: int = 1,
     max_parallel: int | None = None,
+    db_size_mb: float | None = None,
 ) -> Path:
     """
     Run nhmmer on a consensus FASTA split into length-balanced chunks.
@@ -354,6 +382,8 @@ def run_nhmmer_parallel_chunks(
         dfam_db,
         nhmmer_bin,
     )
+    if db_size_mb is not None:
+        scan_input_signature["db_size_mb"] = db_size_mb
     cached_scan_manifest = _read_json(scan_manifest_path)
     scan_manifest_compatible = (
         cached_scan_manifest is not None
@@ -431,6 +461,9 @@ def run_nhmmer_parallel_chunks(
         path: _chunk_signature(path, dfam_db, nhmmer_bin)
         for path in fasta_chunks
     }
+    if db_size_mb is not None:
+        for signature in signatures.values():
+            signature["db_size_mb"] = db_size_mb
     reusable: list[Path] = []
     pending: list[Path] = []
 
@@ -447,7 +480,8 @@ def run_nhmmer_parallel_chunks(
 
         old_chunk_hash = old_chunk_hashes.get(chunk_fasta.name)
         legacy_cache_is_compatible = (
-            manifest is None
+            db_size_mb is None
+            and manifest is None
             and allow_manifestless_checkpoint
             and old_chunk_hash is not None
             and nhmmer_tblout_complete(tblout)
@@ -481,6 +515,7 @@ def run_nhmmer_parallel_chunks(
             tblout=tblout,
             nhmmer_bin=nhmmer_bin,
             cpu=cpu_per_job,
+            **({"db_size_mb": db_size_mb} if db_size_mb is not None else {}),
         )
         _write_json_atomic(
             _chunk_manifest_path(tblout),

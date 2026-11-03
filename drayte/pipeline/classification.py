@@ -54,6 +54,10 @@ from drayte.classification.nonauto import (
 from drayte.classification.ltr_detect import detect_ltrs_from_fasta
 
 
+from drayte.classification.dfam_validation import (
+    run_validation_search, integrate_validation, write_validation_reports,
+)
+
 CLASSIFICATION_SIGNATURE_SCHEMA_VERSION = 3
 CLASSIFICATION_EXECUTION_ONLY_KEYS = frozenset({"chunks", "jobs", "cpu"})
 # These affect the rescue decision, so they have their own signed provenance.
@@ -137,7 +141,7 @@ def classification_input_signature(
     legacy_result_config = {
         key: value
         for key, value in classification_cfg.items()
-        if key not in CLASSIFICATION_EXECUTION_ONLY_KEYS | CLASSIFICATION_RESCUE_POLICY_KEYS
+        if key not in CLASSIFICATION_EXECUTION_ONLY_KEYS | CLASSIFICATION_RESCUE_POLICY_KEYS | {"dfam"}
     }
     # Extension pins this path when resuming. Its resolved sequence content is
     # already checked by structure_library_sha256, so adding the internal path
@@ -293,6 +297,8 @@ def manifest_outputs_are_valid(result: dict) -> bool:
         "evidence_tsv",
         "classified_library",
     )
+    if result.get("dfam_validation", {}).get("enabled"):
+        required_keys += ("dfam_evidence_tsv", "dfam_conflicts_tsv")
     for key in required_keys:
         value = result.get(key)
         if not value:
@@ -381,6 +387,20 @@ def run(
         stage_name=stage_name,
         final_mode=final_mode,
     )
+    validation_hits = []
+    validation_report = None
+    if "dfam" in classification_cfg:
+        validation_hits, validation_report = run_validation_search(
+            classification_cfg["dfam"], structure_library, outdir / "dfam_validation",
+            logger, threads=config.threads, search=False,
+        )
+        signed_report = json.loads(json.dumps(validation_report))
+        for key in ("threads", "jobs", "chunks"):
+            signed_report.get("config", {}).pop(key, None)
+        input_signature["dfam_validation_sha256"] = hashlib.sha256(
+            json.dumps(signed_report, sort_keys=True).encode()
+        ).hexdigest()
+
     legacy_rescue_tsv = outdir / "mmseqs" / "mmseqs_rescue.tsv"
     if (not classification_cfg.get("mmseqs_rescue_db")
             and legacy_rescue_tsv.is_file() and legacy_rescue_tsv.stat().st_size):
@@ -447,7 +467,14 @@ def run(
             rescue_current = external_rescue_is_current(cached_result, input_signature)
             if not rescue_current:
                 logger.warning("Refreshing external-reference rescue and classification: rescue policy or provenance changed; retaining compatible Pfam/Dfam and structure caches")
-            if manifest_outputs_are_valid(cached_result) and rescue_current:
+            dfam_current = (
+                cached_result.get("input_signature", {}).get("dfam_validation_sha256")
+                == input_signature.get("dfam_validation_sha256")
+                and (validation_report or {}).get("status") != "unavailable"
+            )
+            if not dfam_current:
+                logger.info("Refreshing Dfam validation and classification; retaining compatible structural and protein evidence")
+            if manifest_outputs_are_valid(cached_result) and rescue_current and dfam_current:
                 if legacy_signature_migration:
                     logger.warning(
                         "Migrating classification checkpoint to signature schema %d "
@@ -589,67 +616,73 @@ def run(
     # Dfam evidence
     #
 
-    dfam_outdir = ensure_dir(outdir / "dfam")
-    dfam_tblout = dfam_outdir / "dfam.merged.tblout"
-    dfam_db = classification_cfg.get("dfam_db")
-
-    dfam_metadata = {}
-
-    if dfam_db:
-        logger.info("Parsing Dfam HMM metadata: %s", dfam_db)
-        dfam_metadata = parse_dfam_hmm_metadata(dfam_db)
-        logger.info(
-            "Loaded Dfam metadata for %d models",
-            len(dfam_metadata),
-        )
-
-    if dfam_tblout.exists() and dfam_tblout.stat().st_size > 0:
-        logger.info("Parsing cached Dfam tblout: %s", dfam_tblout)
-
-        dfam_hits = parse_nhmmer_tblout(
-            dfam_tblout,
-            dfam_metadata=dfam_metadata,
-        )
-
-    elif dfam_db:
-        logger.info("Running nhmmer against Dfam database: %s", dfam_db)
-
-        cached_dfam_chunks = cached_nhmmer_chunk_count(dfam_outdir)
-        if cached_dfam_chunks is not None:
-            logger.info(
-                "Found existing Dfam checkpoint containing %d chunks",
-                cached_dfam_chunks,
-            )
-
-        if (chunks and chunks > 1) or cached_dfam_chunks is not None:
-            generated_tblout = run_nhmmer_parallel_chunks(
-                dfam_db=dfam_db,
-                consensus_fasta=library,
-                outdir=dfam_outdir,
-                chunks=chunks,
-                nhmmer_bin=classification_cfg.get("nhmmer_bin", "nhmmer"),
-                cpu_per_job=cpu,
-                max_parallel=jobs,
-            )
-        else:
-            generated_tblout = run_nhmmer(
-                dfam_db=dfam_db,
-                consensus_fasta=library,
-                tblout=dfam_tblout,
-                nhmmer_bin=classification_cfg.get("nhmmer_bin", "nhmmer"),
-                cpu=cpu,
-            )
-
-        dfam_hits = parse_nhmmer_tblout(
-            generated_tblout,
-            dfam_metadata=dfam_metadata,
-        )
-
-    else:
-        logger.info("No Dfam evidence provided")
+    # The nested configuration supersedes the legacy Dfam search, including
+    # when disabled. Never run or integrate both Dfam paths.
+    dfam_tblout = outdir / "dfam" / "dfam.merged.tblout"
+    if "dfam" in classification_cfg:
         dfam_hits = []
+    else:
+        dfam_outdir = ensure_dir(outdir / "dfam")
+        dfam_tblout = dfam_outdir / "dfam.merged.tblout"
+        dfam_db = classification_cfg.get("dfam_db")
 
-    logger.info("Loaded %d Dfam hits", len(dfam_hits))
+        dfam_metadata = {}
+
+        if dfam_db:
+            logger.info("Parsing Dfam HMM metadata: %s", dfam_db)
+            dfam_metadata = parse_dfam_hmm_metadata(dfam_db)
+            logger.info(
+                "Loaded Dfam metadata for %d models",
+                len(dfam_metadata),
+            )
+
+        if dfam_tblout.exists() and dfam_tblout.stat().st_size > 0:
+            logger.info("Parsing cached Dfam tblout: %s", dfam_tblout)
+
+            dfam_hits = parse_nhmmer_tblout(
+                dfam_tblout,
+                dfam_metadata=dfam_metadata,
+            )
+
+        elif dfam_db:
+            logger.info("Running nhmmer against Dfam database: %s", dfam_db)
+
+            cached_dfam_chunks = cached_nhmmer_chunk_count(dfam_outdir)
+            if cached_dfam_chunks is not None:
+                logger.info(
+                    "Found existing Dfam checkpoint containing %d chunks",
+                    cached_dfam_chunks,
+                )
+
+            if (chunks and chunks > 1) or cached_dfam_chunks is not None:
+                generated_tblout = run_nhmmer_parallel_chunks(
+                    dfam_db=dfam_db,
+                    consensus_fasta=library,
+                    outdir=dfam_outdir,
+                    chunks=chunks,
+                    nhmmer_bin=classification_cfg.get("nhmmer_bin", "nhmmer"),
+                    cpu_per_job=cpu,
+                    max_parallel=jobs,
+                )
+            else:
+                generated_tblout = run_nhmmer(
+                    dfam_db=dfam_db,
+                    consensus_fasta=library,
+                    tblout=dfam_tblout,
+                    nhmmer_bin=classification_cfg.get("nhmmer_bin", "nhmmer"),
+                    cpu=cpu,
+                )
+
+            dfam_hits = parse_nhmmer_tblout(
+                generated_tblout,
+                dfam_metadata=dfam_metadata,
+            )
+
+        else:
+            logger.info("No Dfam evidence provided")
+            dfam_hits = []
+
+        logger.info("Loaded %d Dfam hits", len(dfam_hits))
 
     #
     # MMseqs rescue evidence
@@ -717,6 +750,15 @@ def run(
     # Build evidence objects and classify
     #
 
+    if validation_report is not None:
+        validation_hits, current_validation_report = run_validation_search(
+            classification_cfg["dfam"], structure_library, outdir / "dfam_validation",
+            logger, threads=config.threads,
+        )
+        if current_validation_report != validation_report:
+            raise RuntimeError("Dfam reference or settings changed during classification; no completion was recorded")
+        validation_report = current_validation_report
+
     logger.info("Building per-family evidence objects")
 
     families = build_families_from_evidence(
@@ -734,6 +776,13 @@ def run(
 
     results = classify_families(families)
     rescue_impact = summarize_rescue_impact(families, results)
+    validation_paths = {}
+    if validation_report is not None:
+        results, dfam_evidence = integrate_validation(
+            families, results, validation_hits, classification_cfg["dfam"],
+        )
+        if validation_report.get("enabled"):
+            validation_paths = write_validation_reports(dfam_evidence, outdir, species)
     if reference_report is not None:
         logger.info("MMseqs classification impact: %d final family labels changed; %d previously Unknown families rescued",
                     rescue_impact["classifications_changed_by_rescue"],
@@ -809,6 +858,9 @@ def run(
         result["mmseqs_rescue_impact"] = rescue_impact
         result["mmseqs_rescue_report"] = reference_report["report_path"]
 
+    if validation_report is not None:
+        result["dfam_validation"] = validation_report
+        result.update(validation_paths)
     write_json(manifest, result)
 
     logger.info("Classification stage completed")

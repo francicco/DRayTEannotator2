@@ -354,6 +354,9 @@ def classify_family(f):
     if f.dfam_order == "LINE":
         candidates.append(("LINE", min(0.99, max(0.85, f.dfam_score / 100.0))))
 
+    if f.dfam_order == "SINE":
+        candidates.append(("SINE", min(0.99, max(0.85, f.dfam_score / 100.0))))
+
     if f.dfam_order == "Penelope" or contains_penelope(f.dfam_superfamily):
         candidates.append(("PENELOPE", min(0.99, max(0.85, f.dfam_score / 100.0))))
 

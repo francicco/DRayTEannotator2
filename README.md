@@ -101,7 +101,7 @@ Outputs are conceptually comparable to EarlGrey summary statistics while retaini
 DRayTEannotator2 implements a multi-evidence TE classification framework integrating:
 
 * RepeatClassifier annotations
-* Dfam nhmmer searches
+* Dfam nhmmer searches and optional [final Dfam/FamDB validation](docs/dfam-validation.md)
 * Pfam protein-domain annotation
 * ORF prediction
 * structural signatures
@@ -341,7 +341,10 @@ selected sources before fingerprinting, so older source timestamps cannot hide
 changed content. Older classification checkpoints are migrated only after
 their input fingerprints, applicable settings hashes, and required outputs have
 been validated. Changed inputs or classification settings still stop resume;
-the error now names the differing fingerprint or setting.
+the error now names the differing fingerprint or setting. The optional nested
+`classification.dfam` validation settings are refreshed separately: changing
+Dfam selection, reference contents, or validation thresholds rebuilds the affected
+search/decisions while retaining compatible upstream evidence.
 
 Use a new output directory when intentionally starting an analysis with different
 inputs or settings.
@@ -506,6 +509,15 @@ drayte-classify \
   --output classifications.tsv \
   --evidence-output evidence.tsv
 ```
+
+For conservative final validation from Dfam 4.0 FamDB, use the nested
+`classification.dfam` configuration in
+[config/dfam-validation.example.yaml](config/dfam-validation.example.yaml).
+It supersedes the legacy `dfam_db` search, records original and final assignments,
+and reports conflicts. Dfam reference sequences are never appended to the final
+species-specific RepeatMasker library. See the
+[validation guide](docs/dfam-validation.md) for taxonomy, thresholds, dependencies,
+standalone CLI usage, and resume behavior.
 
 Outputs:
 

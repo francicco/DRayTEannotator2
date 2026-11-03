@@ -103,6 +103,9 @@ def write_classification_tsv(results, outpath):
         "evidence",
     ]
 
+    if results:
+        fields += [key for key in results[0] if key not in fields]
+
     with open(outpath, "w") as out:
         writer = csv.DictWriter(
             out,
@@ -173,6 +176,10 @@ def write_evidence_tsv(families, results, outpath):
         "evidence",
     ]
 
+    validation_fields = [key for key in (results[0] if results else {})
+                         if key.startswith("original_") or key.startswith("dfam_")]
+    fields += [key for key in validation_fields if key not in fields]
+
     with open(outpath, "w") as out:
         writer = csv.DictWriter(
             out,
@@ -186,6 +193,7 @@ def write_evidence_tsv(families, results, outpath):
             result = result_by_id[f.family_id]
 
             writer.writerow({
+                **{key: result[key] for key in validation_fields},
                 "family_id": f.family_id,
                 "final_class": result["class"],
                 "final_order": result["order"],

@@ -61,6 +61,15 @@ classification:
   forward_only: false
   pfam_db: Path-to-Pfam-A.hmm
   dfam_db: Path-to-Dfam.hmm
+  # Optional final validation; this mapping supersedes dfam_db when present.
+  # See config/dfam-validation.example.yaml and docs/dfam-validation.md.
+  # dfam:
+  #   enabled: true
+  #   database: /path/to/dfam40/FamDB
+  #   taxon: Arthropoda
+  #   curated_only: true
+  #   engine: nhmmer
+  #   threads: 16
   hmmscan_bin: hmmscan
   nhmmer_bin: nhmmer
   mmseqs_bin: /user/work/tk19812/software/mmseqs/bin/mmseqs

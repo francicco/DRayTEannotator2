@@ -18,6 +18,9 @@ dependencies = [
   "tabulate",
 ]
 
+[project.optional-dependencies]
+famdb = ["h5py>=3.0", "numpy>=1.24"]
+
 [project.scripts]
 drayte = "drayte.pipeline.runner:main"
 drayte-storage = "drayte.storage.cli:main"

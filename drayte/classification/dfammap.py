@@ -128,45 +128,52 @@ def normalize_dfam_ct_terms(terms: list[str]) -> tuple[str, str, str]:
     return dfam_class, order, superfamily
 
 
-def parse_dfam_hmm_metadata(
-    hmm_path: str | Path,
-) -> dict[str, dict[str, str]]:
+def parse_dfam_hmm_metadata(hmm_path: str | Path) -> dict[str, dict]:
+    """Read FamDB's nucleotide HMM metadata, including RM annotations and GA.
+
+    Curated status follows Dfam accession namespaces (DF versus DR). Missing
+    classification is retained as Unknown; model names are not taxonomy.
+    """
     metadata = {}
-
-    current_name = None
-    current_ct = None
-
-    with open(hmm_path) as fh:
-        for line in fh:
-            line = line.rstrip("\n")
-
-            if line.startswith("NAME"):
-                current_name = line.split(maxsplit=1)[1].strip()
-                current_ct = None
-
-            elif line.startswith("CT"):
-                current_ct = line.split(maxsplit=1)[1].strip()
-
-            elif line.startswith("//"):
-                if current_name and current_ct:
-                    terms = [
-                        x.strip()
-                        for x in current_ct.split(";")
-                        if x.strip()
-                    ]
-
-                    dfam_class, order, superfamily = normalize_dfam_ct_terms(
-                        terms
+    record = {}
+    with open(hmm_path) as handle:
+        for line in handle:
+            fields = line.strip().split(maxsplit=1)
+            if not fields:
+                continue
+            tag = fields[0]
+            value = fields[1] if len(fields) > 1 else ""
+            if tag in {"NAME", "ACC", "LENG", "ALPH", "GA", "TC", "NC", "CT"}:
+                record[tag] = value
+            elif tag == "CC":
+                for label, key in (("Type:", "type"), ("SubType:", "subtype")):
+                    if value.startswith(label):
+                        record[key] = value[len(label):].strip()
+            elif tag == "//":
+                if "NAME" in record:
+                    ct = record.get("CT", "")
+                    cls, order, sf = normalize_dfam_ct_terms(
+                        [term.strip() for term in ct.split(";") if term.strip()]
                     )
-
-                    metadata[current_name] = {
-                        "dfam_class": dfam_class,
-                        "dfam_order": order,
-                        "dfam_superfamily": superfamily,
-                        "dfam_ct": current_ct,
-                    }
-
-                current_name = None
-                current_ct = None
-
+                    rm_type = record.get("type", "")
+                    rm_map = {"LTR": ("Class_I", "LTR"), "LINE": ("Class_I", "LINE"),
+                              "SINE": ("Class_I", "SINE"), "DNA": ("Class_II", "TIR"),
+                              "RC": ("Class_II", "Helitron")}
+                    if rm_type in rm_map:
+                        cls, order = rm_map[rm_type]
+                        sf = record.get("subtype") or "Unknown"
+                    if sf == "Penelope":
+                        cls, order = "Class_I", "Penelope"
+                    accession = record.get("ACC", "")
+                    meta = {"dfam_class": cls, "dfam_order": order,
+                            "dfam_superfamily": sf, "dfam_ct": ct,
+                            "accession": accession, "model_length": int(record.get("LENG", 0)),
+                            "alphabet": record.get("ALPH", "").lower(),
+                            "curated": True if accession.startswith("DF") else
+                                       False if accession.startswith("DR") else None}
+                    for key in ("GA", "TC", "NC"):
+                        values = record.get(key, "").replace(";", "").split()
+                        meta[key.lower()] = float(values[0]) if values else None
+                    metadata[record["NAME"]] = meta
+                record = {}
     return metadata

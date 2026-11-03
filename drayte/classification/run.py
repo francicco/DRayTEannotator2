@@ -15,6 +15,12 @@ from .dfam import (
     run_nhmmer,
     run_nhmmer_parallel_chunks,
 )
+from .dfam_validation import (
+    options as dfam_options,
+    run_validation_search,
+    integrate_validation,
+    write_validation_reports,
+)
 from .mmseqs import (
     parse_mmseqs_tsv,
     run_reference_mmseqs_rescue,
@@ -254,7 +260,18 @@ def main():
         default=1,
         help="Number of CPUs for hmmscan/nhmmer/MMseqs steps",
     )
+    parser.add_argument("--dfam-config", help="YAML mapping of Dfam validation options (same as classification.dfam); FASTA mode only")
     args = parser.parse_args()
+    validation_config = None
+    validation_hits = []
+    if args.dfam_config:
+        import yaml
+        with open(args.dfam_config) as handle:
+            validation_config = dfam_options(yaml.safe_load(handle))
+        if args.input:
+            parser.error("--dfam-config requires --fasta")
+        if args.dfam_db or args.dfam_tblout:
+            parser.error("Use --dfam-config or legacy --dfam-db/--dfam-tblout, not both")
     if (not math.isfinite(args.mmseqs_rescue_score_fraction)
             or not 0 < args.mmseqs_rescue_score_fraction <= 1):
         parser.error("--mmseqs-rescue-score-fraction must be greater than 0 and at most 1")
@@ -361,74 +378,82 @@ def main():
             log_step("No structure evidence provided")
             structure_evidence = []
 
-        default_dfam_tblout = (
-            Path(args.dfam_outdir)
-            / "dfam.merged.tblout"
-        )
-
-        dfam_tblout = (
-            Path(args.dfam_tblout)
-            if args.dfam_tblout
-            else default_dfam_tblout
-        )
-
-        if dfam_tblout.exists():
-            log_step(f"Parsing cached Dfam tblout: {dfam_tblout}")
-            dfam_hits = parse_nhmmer_tblout(dfam_tblout)
-            log_step(f"Parsed {len(dfam_hits)} Dfam hits")
-
-        elif args.dfam_tblout or args.dfam_db:
-            require_db_for_missing_cache(
-                "Dfam",
-                dfam_tblout,
-                args.dfam_db,
+        if validation_config is not None:
+            import logging
+            validation_hits, _ = run_validation_search(
+                validation_config, args.fasta, Path(args.dfam_outdir) / "validation",
+                logging.getLogger(__name__), threads=args.cpu,
             )
-
-            log_step(
-                f"No cached Dfam tblout found at {dfam_tblout}"
-            )
-            log_step(
-                f"Running nhmmer against Dfam database: {args.dfam_db}"
-            )
-
-            cached_dfam_chunks = cached_nhmmer_chunk_count(
-                args.dfam_outdir
-            )
-            if cached_dfam_chunks is not None:
-                log_step(
-                    "Found existing Dfam checkpoint containing "
-                    f"{cached_dfam_chunks} chunks"
-                )
-
-            if (
-                (args.chunks and args.chunks > 1)
-                or cached_dfam_chunks is not None
-            ):
-                generated_tblout = run_nhmmer_parallel_chunks(
-                    dfam_db=args.dfam_db,
-                    consensus_fasta=args.fasta,
-                    outdir=args.dfam_outdir,
-                    chunks=args.chunks,
-                    nhmmer_bin=args.nhmmer_bin,
-                    cpu_per_job=args.cpu,
-                    max_parallel=args.jobs,
-                )
-            else:
-                generated_tblout = run_nhmmer(
-                    dfam_db=args.dfam_db,
-                    consensus_fasta=args.fasta,
-                    tblout=dfam_tblout,
-                    nhmmer_bin=args.nhmmer_bin,
-                    cpu=args.cpu,
-                )
-
-            log_step(f"Parsing generated Dfam tblout: {generated_tblout}")
-            dfam_hits = parse_nhmmer_tblout(generated_tblout)
-            log_step(f"Parsed {len(dfam_hits)} Dfam hits")
-
-        else:
-            log_step("No Dfam evidence provided")
             dfam_hits = []
+        else:
+            default_dfam_tblout = (
+                Path(args.dfam_outdir)
+                / "dfam.merged.tblout"
+            )
+
+            dfam_tblout = (
+                Path(args.dfam_tblout)
+                if args.dfam_tblout
+                else default_dfam_tblout
+            )
+
+            if dfam_tblout.exists():
+                log_step(f"Parsing cached Dfam tblout: {dfam_tblout}")
+                dfam_hits = parse_nhmmer_tblout(dfam_tblout)
+                log_step(f"Parsed {len(dfam_hits)} Dfam hits")
+
+            elif args.dfam_tblout or args.dfam_db:
+                require_db_for_missing_cache(
+                    "Dfam",
+                    dfam_tblout,
+                    args.dfam_db,
+                )
+
+                log_step(
+                    f"No cached Dfam tblout found at {dfam_tblout}"
+                )
+                log_step(
+                    f"Running nhmmer against Dfam database: {args.dfam_db}"
+                )
+
+                cached_dfam_chunks = cached_nhmmer_chunk_count(
+                    args.dfam_outdir
+                )
+                if cached_dfam_chunks is not None:
+                    log_step(
+                        "Found existing Dfam checkpoint containing "
+                        f"{cached_dfam_chunks} chunks"
+                    )
+
+                if (
+                    (args.chunks and args.chunks > 1)
+                    or cached_dfam_chunks is not None
+                ):
+                    generated_tblout = run_nhmmer_parallel_chunks(
+                        dfam_db=args.dfam_db,
+                        consensus_fasta=args.fasta,
+                        outdir=args.dfam_outdir,
+                        chunks=args.chunks,
+                        nhmmer_bin=args.nhmmer_bin,
+                        cpu_per_job=args.cpu,
+                        max_parallel=args.jobs,
+                    )
+                else:
+                    generated_tblout = run_nhmmer(
+                        dfam_db=args.dfam_db,
+                        consensus_fasta=args.fasta,
+                        tblout=dfam_tblout,
+                        nhmmer_bin=args.nhmmer_bin,
+                        cpu=args.cpu,
+                    )
+
+                log_step(f"Parsing generated Dfam tblout: {generated_tblout}")
+                dfam_hits = parse_nhmmer_tblout(generated_tblout)
+                log_step(f"Parsed {len(dfam_hits)} Dfam hits")
+
+            else:
+                log_step("No Dfam evidence provided")
+                dfam_hits = []
 
 
         default_mmseqs_tsv = (
@@ -520,6 +545,11 @@ def main():
         "MMseqs rescue classification impact: "
         + ", ".join(f"{key}={value}" for key, value in rescue_impact.items())
     )
+
+    if validation_config is not None:
+        results, dfam_evidence = integrate_validation(families, results, validation_hits, validation_config)
+        if validation_config.get("enabled", False):
+            write_validation_reports(dfam_evidence, Path(args.output).parent, Path(args.output).stem)
 
     n_unknown = sum(
         1 for r in results

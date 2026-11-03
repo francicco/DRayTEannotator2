@@ -1,0 +1,23 @@
+# Merge this section into the pipeline configuration.
+classification:
+  dfam:
+    enabled: true
+    database: /path/to/Dfam_4.0/FamDB
+    taxon: Arthropoda
+    ancestors: true
+    descendants: true
+    curated_only: true
+    engine: nhmmer
+    famdb_bin: famdb.py
+    nhmmer_bin: nhmmer
+    threads: 16     # CPUs per NHMMER job
+    chunks: 1
+    jobs: 1        # Maximum concurrent jobs; total CPUs <= threads * jobs
+    require_ga: true
+    min_score: 20.0
+    max_evalue: 1.0e-5
+    min_query_coverage: 0.10
+    min_model_coverage: 0.50
+    competition_score_fraction: 0.95
+    independent: false
+    on_missing: error
