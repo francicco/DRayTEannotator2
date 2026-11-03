@@ -590,56 +590,28 @@ drayte-classify \
 
 # Dfam setup
 
-## Download Dfam HMM library
+## Configure Dfam 4.0 validation
 
-Dfam provides taxon-specific TE profile HMMs.
+[DEFAULT.config.yaml](DEFAULT.config.yaml) contains the active nested
+`classification.dfam` block. Set its `database` to your installed FamDB directory
+and its `taxon` to the study group. The template uses Collembola, matching its
+preset; use Lepidoptera for a Heliconius run. Set `enabled: false` to bypass Dfam.
 
-Available releases:
-https://www.dfam.org/releases
+The pipeline exports selected nucleotide profiles with the installed FamDB CLI.
+For a manual export, the equivalent command is:
 
-For example, Arthropoda:
-
-```bash id="z8m4qn"
-mkdir -p Databases/TE_HMMs
-cd Databases/TE_HMMs
-
-wget https://dfam.org/releases/current/families/Dfam.hmm.gz
-gunzip Dfam.hmm.gz
-mv Dfam.hmm dfam-arthropoda.hmm
+```bash
+famdb.py -i /path/to/FamDB families --format hmm \
+  --ancestors --descendants --curated Arthropoda > dfam-arthropoda.hmm
 ```
 
-Alternatively, lineage-specific subsets can be downloaded directly from Dfam.
+With an existing exported HMM file, set `database` to that file and `taxon: null`.
+Renaming a full Dfam library does not select an arthropod subset. NHMMER reads
+this ASCII HMM library directly; `hmmpress` is not required for this search.
 
----
-
-## Prepare Dfam database
-
-Press the database for `nhmmer`:
-
-```bash id="b9sq4l"
-hmmpress dfam-arthropoda.hmm
-```
-
-This generates:
-
-```text id="gk2rj5"
-dfam-arthropoda.hmm.h3f
-dfam-arthropoda.hmm.h3i
-dfam-arthropoda.hmm.h3m
-dfam-arthropoda.hmm.h3p
-```
-
----
-
-## Example usage
-
-```bash id="y0k3tr"
-drayte-classify \
-  --fasta TE_library.fa \
-  --dfam-db /path/to/dfam-arthropoda.hmm \
-  --dfam-outdir classification_dfam \
-  --output classifications.tsv
-```
+See [the validation guide](docs/dfam-validation.md) for dependencies, thresholds,
+reports and a standalone cluster test using an existing consensus FASTA. Dfam
+reference sequences are not added to the final species-specific masking library.
 
 ---
 

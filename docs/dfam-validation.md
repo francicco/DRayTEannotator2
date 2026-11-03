@@ -183,6 +183,65 @@ drayte-classify --fasta TE_library.fa --pfam-db Pfam-A.hmm \
 This mode requires FASTA input and cannot be combined with legacy `--dfam-db` or
 `--dfam-tblout`. Standalone Dfam report prefixes use the output TSV stem.
 
+## First cluster test on an existing TE library
+
+Update the `feature/dfam40-validation` checkout and activate your working DRayTE
+environment. Install the package from that checkout with `python -m pip install
+-e '.[famdb]'`. Confirm that `famdb.py` and `nhmmer` are available in that
+environment, or set their absolute executable paths in the configuration.
+
+For an existing run, add only the nested `classification.dfam` block to a copy of
+your working run YAML. Retain the other settings and paths. Do not replace an
+existing run configuration wholesale with the default template. A historical
+flat `dfam_db` key may remain: the nested block supersedes it.
+
+Set the real FamDB directory, study-group taxon, and allocated CPU count. Submit
+the following standalone test through your normal cluster job launcher, using a
+new test directory and your existing TE consensus FASTA:
+
+```bash
+RUN_CONFIG=/absolute/path/to/your.run.yaml
+TE_LIBRARY=/absolute/path/to/your.consensus.fa
+TEST_OUT=/absolute/path/to/new/dfam-validation-test
+mkdir -p "$TEST_OUT"
+python - "$RUN_CONFIG" "$TEST_OUT/dfam-options.yaml" <<'PYCONFIG'
+import sys
+import yaml
+from drayte.classification.dfam_validation import options
+with open(sys.argv[1]) as handle:
+    cfg = yaml.safe_load(handle)
+dfam = options(cfg["classification"]["dfam"])
+if not dfam["enabled"]:
+    raise SystemExit("Enable classification.dfam before running this test")
+with open(sys.argv[2], "w") as handle:
+    yaml.safe_dump(dfam, handle, sort_keys=False)
+PYCONFIG
+
+drayte-classify \
+  --fasta "$TE_LIBRARY" \
+  --dfam-config "$TEST_OUT/dfam-options.yaml" \
+  --dfam-outdir "$TEST_OUT/dfam" \
+  --pfam-outdir "$TEST_OUT/pfam-unused" \
+  --mmseqs-outdir "$TEST_OUT/mmseqs-unused" \
+  --output "$TEST_OUT/classifications.tsv" \
+  --evidence-output "$TEST_OUT/evidence.tsv"
+```
+
+This first test exercises Dfam export/search and integration with any existing
+FASTA-header homology. It does not generate structural, Pfam or MMseqs evidence,
+so its baseline is not equivalent to a full pipeline classification. Use the
+integrated pipeline afterward to assess Dfam alongside all evidence sources.
+No full-genome masking is run by this standalone command.
+
+Inspect `classifications.dfam_evidence.tsv`,
+`classifications.dfam_conflicts.tsv`, `classifications.tsv`, and
+`dfam/validation/dfam.validation.manifest.json` beneath the test directory. Zero
+new classifications is a valid outcome; check the rejection reasons, especially
+`missing_model_threshold` and `insufficient_coverage`, before changing cutoffs.
+Repeat the same command to verify completed-chunk reuse in the NHMMER log.
+After this check, use your normal `drayte --config /path/to/your.run.yaml` job to
+test the integrated classification and final species-specific masking library.
+
 ## Validation performed
 
 Unit and pipeline tests cover parsing, hierarchy mapping, acceptance/coverage,
