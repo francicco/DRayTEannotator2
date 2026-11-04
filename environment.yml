@@ -1,39 +1,73 @@
+# Linux/HPC environment. Verified upstream releases as of 2026-11-03.
+# Dfam 4.0 data and Pfam profiles must be installed separately (see docs/environment.md).
+# Extension also needs an existing cross_match executable; set phrap_dir in the run YAML.
 name: drayte
 channels:
   - conda-forge
   - bioconda
-  - defaults
+  - nodefaults
 
 dependencies:
-  - python>=3.10
+  # Python runtime, pipeline imports and FamDB HDF5 support.
+  - python=3.12
   - pip
+  - setuptools
   - pandas
-  - numpy
+  - numpy>=1.24
   - matplotlib
+  - pillow
   - tabulate
   - biopython
   - pyyaml
+  - pyfaidx
+  - pybedtools
+  - h5py>=3.0
 
-  # core external tools
-  - repeatmodeler=2.*
-  - repeatmasker
-  - repeatscout
-  - rmblast
+  # RepeatModeler 2.0.9 explicitly supports RepeatMasker 4.2.4 / Dfam 4.0.
+  - repeatmodeler=2.0.9
+  - repeatmasker=4.2.4
+  - famdb=3.0.0
+  - hmmer=3.4
+  - rmblast>=2.17.0
+  - repeatscout>=1.0.6
+  - recon=1.10
   - trf
+  - repeatafterme
   - genometools-genometools
+  - ltr_retriever>=2.9
+  - ninja-nj
+
+  # Alignment, sequence extraction, consensus extension and curation.
+  - blast
+  - bedtools
+  - samtools
+  - seqtk
   - seqkit
+  - mafft
   - mmseqs2
   - diamond
   - cd-hit
   - emboss
+  - ucsc-fatotwobit
+  - ucsc-twobitinfo
+  - ucsc-twobittofa
 
-  # Perl/R support often needed by RepeatMasker/RepeatModeler/EarlGrey-like tooling
-  - perl
-  - perl-bioperl
+  # Perl/R support for RepeatMasker/RepeatModeler and reporting.
+  - perl=5.32.1
+  # Full perl-bioperl pulls obsolete Bio::Samtools/SAMtools builds; the current
+  # pipeline and pinned RepeatModeler use their own Perl modules instead.
+  - perl-gd  # GD::Simple used by upstream RepeatModeler visualizeAlignPNG.pl
   - r-base
   - r-tidyverse
+  - r-ggplot2
+  - r-scales
   - bioconductor-biostrings
   - bioconductor-bsgenome
 
+  # Reference-data transfer and unpacking.
+  - curl
+  - wget
+  - gzip
+
   - pip:
-      - -e .
+      - -e .[famdb]

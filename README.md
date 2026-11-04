@@ -171,13 +171,18 @@ Intermediate outputs are reused automatically across reruns.
 
 -----
 
+For the pinned RepeatMasker 4.2.4 / RepeatModeler 2.0.9 / FamDB 3.0.0
+cluster environment, Dfam 4.0 data installation, external `cross_match`
+requirement and configuration paths, see [the environment guide](docs/environment.md).
+Installing the software does not download the Dfam database.
+
 ## Installation
 
 Recommended: Micromamba / Conda
 
 Create environment:
 ```
-micromamba create -n drayte -f environment.yml
+micromamba create -n drayte -f environment.yml --strict-channel-priority
 micromamba activate drayte
 pip install -e .
 ```

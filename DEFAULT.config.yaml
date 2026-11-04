@@ -9,16 +9,19 @@ preset: Collembola
 storage:
   mode: keep  # use compact for batch runs after validating your workflow
 
-repeatmodeler_dir: /user/work/tk19812/software/RepeatModeler-2.0.4
-repeatscout_dir: /user/work/tk19812/software/RepeatScout
-repeatmasker_bin: /user/work/tk19812/software/RepeatMasker/RepeatMasker
-repeatmodeler_extend_script: /user/work/tk19812/software/RepeatModeler-2.0.4/util/davidExtendConsRAM.pl
+# For the Conda environment, use the resolved RepeatModeler executable directory:
+#   python -c 'import pathlib,shutil; print(pathlib.Path(shutil.which("RepeatModeler")).resolve().parent)'
+repeatmodeler_dir: Path-to-RepeatModeler-2.0.9
+repeatscout_dir: Path-to-environment-bin
+repeatmasker_bin: RepeatMasker
+# Use this repository's customized extension script (not an upstream copy).
+repeatmodeler_extend_script: Path-to-DRayTEannotator2/davidExtendConsRAM.pl
 repeatclassifier_bin: RepeatClassifier
-ucsc_tools_dir: /user/work/tk19812/software/Kent/bin/x86_64
-repeat_after_me_dir: /user/work/tk19812/software/RepeatAfterMe
+ucsc_tools_dir: Path-to-environment-bin
+repeat_after_me_dir: Path-to-environment-bin
 phrap_dir: /user/work/tk19812/software/phrap
 
-repeatpeps_db_dir: /user/work/tk19812/software/RepeatMasker/Libraries/
+repeatpeps_db_dir: Path-to-Dfam-4.0-RepeatPeps
 diamond_bin: diamond
 getorf_bin: getorf
 cdhit_est_bin: cd-hit-est
@@ -34,7 +37,7 @@ structure:
   heliano:
     enabled: false
     bin: /user/work/tk19812/micromamba/envs/earlgrey/bin/heliano
-    mmseqs_bin: /user/work/tk19812/software/mmseqs/bin/mmseqs 
+    mmseqs_bin: mmseqs
     redundancy_identity: 0.90
     query_cov: 0.80
     threads: 16
@@ -89,7 +92,7 @@ classification:
     on_missing: error
 
   # Existing protein-domain and nucleotide-reference evidence settings.
-  mmseqs_bin: /user/work/tk19812/software/mmseqs/bin/mmseqs
+  mmseqs_bin: mmseqs
   mmseqs_rescue_db: null
   chunks: 40
   jobs: 40

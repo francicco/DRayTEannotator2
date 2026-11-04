@@ -55,6 +55,25 @@ if ( $options{'h'} || ! -s $options{'family'} || ! -s $options{'genome'} || ! $o
   exit(0);
 }
 
+# Preserve installations with the custom Python renderer while supporting the
+# Perl renderer shipped by upstream RepeatModeler 2.0.9.
+sub run_alignment_visualizer {
+  my ($alignment_file, $render_genome) = @_;
+  my $python_renderer = "$repeatModelerDir/util/visualizeAlignPNG.py";
+  my $perl_renderer = "$repeatModelerDir/util/visualizeAlignPNG.pl";
+  my @command;
+  if (-f $python_renderer) {
+    @command = ("python", $python_renderer);
+  } elsif (-f $perl_renderer) {
+    @command = ($^X, $perl_renderer);
+  } else {
+    warn "No alignment PNG renderer found in $repeatModelerDir/util; skipping visualization\n";
+    return;
+  }
+  my $status = system(@command, "-genome", $render_genome, "-outfile", $alignment_file);
+  warn "Alignment PNG renderer failed (status $status); see extension log\n" if $status != 0;
+}
+
 my $matrixDir = "$repeatModelerDir/Matrices";
 my $catTEfile = $options{'family'};
 my $outdir = $options{'outdir'};
@@ -305,7 +324,7 @@ if ( -e "repam-cons.fa") {
  system("perl $repeatModelerDir/util/alignAndCallConsensus.pl --defaults");
  system("perl $repeatModelerDir/util/Linup -malignOut out.malign.w_rmod_cons -i -genome $genomeFile -includeFlanking 50 -msa repam-newrep.out > MSA-extended_with_rmod_cons.fa"); ###### This command fails
  #system("perl $repeatModelerDir/util/visualizeAlignPNG.pl -genome $genome_file -outfile repam-newrep.out");
- system("python $repeatModelerDir/util/visualizeAlignPNG.py -genome $genome_file -outfile repam-newrep.out");
+ run_alignment_visualizer("repam-newrep.out", $genome_file);
  system("mv repam-newrep.ali ali.w_rmod_cons");
  system("mv repam-newrep.out out.w_rmod_cons");
  system("cp rep.extended rep");
@@ -318,7 +337,7 @@ if ( -e "repam-cons.fa") {
  system("cp repseq.unextended repseq");
  system("cp out.unextended out");
  #system("perl $repeatModelerDir/util/visualizeAlignPNG.pl -genome $genome_file -outfile out");
- system("python $repeatModelerDir/util/visualizeAlignPNG.py -genome $genome_file -outfile out");
+ run_alignment_visualizer("out", $genome_file);
 }
 
 chdir($curDir);
