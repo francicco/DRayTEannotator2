@@ -19,7 +19,7 @@ From the repository checkout:
 ```bash
 micromamba create -n drayann-dfam40 -f environment.yml --strict-channel-priority
 micromamba activate drayann-dfam40
-python -m pip check
+python -I -m pip check
 ```
 
 This creates a separate environment and leaves `drayann731` available for your
@@ -31,7 +31,7 @@ Verify the software actually selected by this environment:
 
 ```bash
 command -v python RepeatMasker RepeatModeler RepeatClassifier famdb.py nhmmer
-RepeatMasker -version
+RepeatMasker -h 2>&1 | sed -n '1,8p'
 RepeatModeler -version
 famdb.py --help
 nhmmer -h
@@ -39,6 +39,51 @@ python -c 'import Bio, yaml, pandas, numpy, matplotlib, pyfaidx, pybedtools, h5p
 perl -MGD::Simple -e 'print "GD::Simple OK\n"'
 Rscript -e 'library(tidyverse); library(ggplot2); library(scales); library(Biostrings); library(BSgenome); cat("R libraries OK\n")'
 ```
+
+The version command is tool-specific: RepeatModeler supports `-version`, whereas
+RepeatMasker may reject that option and print usage. Use its help banner and the
+installed Conda metadata rather than treating a rejected flag as an installation
+failure.
+
+If `pip check` reports unrelated Jupyter, scVI or other packages, first use the
+exact active environment's Python in isolated mode:
+
+```bash
+"$CONDA_PREFIX/bin/python" -I -m pip check
+```
+
+`-I` excludes the user site and Python environment-variable paths; it does not
+remove or install packages. If isolation clears the errors, they came from
+outside this environment. If they persist, inspect the packages installed inside
+the environment before changing dependencies. Do not add unrelated notebook
+packages or downgrade NumPy solely to repair external package warnings.
+
+For wrong tool banners or a `famdb.py` found outside the environment, inspect
+both command selection and installed package metadata:
+
+```bash
+type -a python RepeatMasker RepeatModeler famdb.py
+"$CONDA_PREFIX/bin/python" -I - <<'PYVERSIONS'
+import json
+import sys
+from pathlib import Path
+wanted = {"repeatmasker", "repeatmodeler", "famdb", "hmmer"}
+found = {}
+for path in (Path(sys.prefix) / "conda-meta").glob("*.json"):
+    record = json.loads(path.read_text())
+    if record["name"] in wanted:
+        found[record["name"]] = record["version"]
+print("Python:", sys.executable)
+for name in sorted(wanted):
+    print(name, found.get(name, "NOT INSTALLED"))
+PYVERSIONS
+```
+
+Old versions in the metadata mean the environment itself needs correction.
+Expected package versions with older executable banners instead call for checking
+aliases, executable symlinks, PATH and PERL5LIB. Also verify the checkout and
+`environment.yml` used to create the environment; an activation prompt alone
+does not establish which manifest was installed.
 
 FamDB 3.0 may print help and return exit status 1; that behavior alone does not
 indicate a failed installation. The `famdb.py info` checks below are the database
