@@ -1,7 +1,7 @@
 # Linux/HPC environment. Verified upstream releases as of 2026-11-03.
 # Dfam 4.0 data and Pfam profiles must be installed separately (see docs/environment.md).
 # Extension also needs an existing cross_match executable; set phrap_dir in the run YAML.
-name: drayte
+name: drayann2
 channels:
   - conda-forge
   - bioconda

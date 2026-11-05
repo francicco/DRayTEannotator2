@@ -14,18 +14,103 @@ Sources:
 
 ## Create the environment
 
-From the repository checkout:
+The canonical environment name is **drayann2**. The Dfam 4.0 workflow is currently
+on `feature/dfam40-validation`, so install from that branch's `environment.yml`.
+Use either a fresh installation below or the existing-installation migration;
+there is no need to run both.
+
+For a new checkout:
 
 ```bash
-micromamba create -n drayann-dfam40 -f environment.yml --strict-channel-priority
-micromamba activate drayann-dfam40
-python -I -m pip check
+git clone --branch feature/dfam40-validation https://github.com/francicco/DRayTEannotator2.git
+cd DRayTEannotator2
 ```
 
-This creates a separate environment and leaves `drayann731` available for your
-existing runs. The file uses conda-forge/bioconda and excludes implicit defaults.
-The editable pip installation must run from this checkout and includes the FamDB
-Python extra. A dry run, if desired, uses the same command with `--dry-run`.
+From this checkout, isolate Python from user-site packages and unrelated software
+such as Cactus before installing:
+
+```bash
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH
+
+micromamba create -n drayann2 -f environment.yml --strict-channel-priority &&
+micromamba activate drayann2 &&
+python -I -m pip check &&
+drayte --help
+```
+
+Include the Python-isolation settings and `micromamba activate drayann2` in each
+DRayTE job script. They apply to that shell/job; they do not change other software
+installations. The file uses conda-forge/bioconda and excludes implicit defaults.
+It installs DRayTE in editable mode with the FamDB Python extra from this
+checkout. A package-resolution dry run uses the create command with `--dry-run`;
+a successful dry run does not install the environment.
+
+## Update an existing checkout
+
+Use the existing repository directory rather than cloning over it. If you edited
+`DEFAULT.config.yaml` locally, save that specific change before switching:
+
+```bash
+git stash push -m "Local DEFAULT.config.yaml before Dfam update" -- DEFAULT.config.yaml &&
+git fetch origin &&
+git switch feature/dfam40-validation &&
+git pull --ff-only origin feature/dfam40-validation
+```
+
+The stash retains the previous local settings. Inspect it with
+`git stash show -p 'stash@{0}'` and transfer the required settings into your run
+YAML. Applying it wholesale can reintroduce the old template. Other local changes
+may still require review if Git refuses the switch. After a successful update,
+use the environment-creation command above or the migration below.
+
+## Use drayann2 for an existing installation
+
+If `drayann-dfam40-clean` is your verified working environment and `drayann2` does
+not already exist, export its exact Conda packages and recreate them under the
+new name. This relinks installed paths correctly. The editable DRayTE package is
+reinstalled separately because an explicit Conda export does not include pip
+packages. Custom `famdb.conf` settings are also not copied by this export; set
+its default reference directory again using the instructions below.
+Any additional pip-only packages or manually edited environment files
+need separate handling; the earlier clean installation only required the editable
+DRayTE package.
+
+Run from the updated repository checkout:
+
+```bash
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH
+
+micromamba env export -n drayann-dfam40-clean --explicit > "$HOME/drayann2.explicit.txt" &&
+micromamba create -n drayann2 -f "$HOME/drayann2.explicit.txt" &&
+micromamba activate drayann2 &&
+python -I -m pip install --no-deps -e '.[famdb]' &&
+python -I -m pip check &&
+drayte --help
+```
+
+Recheck the software versions below. To remove the three earlier DrayAnn
+environments after validating `drayann2`, run:
+
+```bash
+micromamba activate drayann2 &&
+python -I -m pip check &&
+drayte --help >/dev/null &&
+micromamba env remove -n drayann731 -y &&
+micromamba env remove -n drayann-dfam40 -y &&
+micromamba env remove -n drayann-dfam40-clean -y
+
+micromamba env list
+```
+
+This cleanup targets only the three named DrayAnn environments. Keep separate
+HELIANO/EarlGrey installations that your workflow still calls. Regenerate your
+run YAML after migration so absolute executable paths refer to `drayann2` rather
+than a deleted environment. The Dfam data/default directory still needs the
+configuration described below.
+
+## Verify the installed software
 
 Verify the software actually selected by this environment:
 
@@ -35,10 +120,21 @@ RepeatMasker -h 2>&1 | sed -n '1,8p'
 RepeatModeler -version
 famdb.py --help
 nhmmer -h
-python -c 'import Bio, yaml, pandas, numpy, matplotlib, pyfaidx, pybedtools, h5py, tabulate; print("Python imports OK")'
+python -I -c 'import Bio, yaml, pandas, numpy, matplotlib, pyfaidx, pybedtools, h5py, tabulate; print("Python imports OK")'
 perl -MGD::Simple -e 'print "GD::Simple OK\n"'
 Rscript -e 'library(tidyverse); library(ggplot2); library(scales); library(Biostrings); library(BSgenome); cat("R libraries OK\n")'
 ```
+
+The package list should contain RepeatMasker **4.2.4**, RepeatModeler **2.0.9**,
+FamDB **3.0.0**, HMMER **3.4**, `pyfaidx` and `pybedtools`. Check it with:
+
+```bash
+micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|pyfaidx|pybedtools'
+```
+
+The command paths should be inside the active `drayann2` prefix. If an installed
+package is absent or older than these pins, the environment does not match the
+current manifest. Resolve that before configuring the pipeline.
 
 The version command is tool-specific: RepeatModeler supports `-version`, whereas
 RepeatMasker may reject that option and print usage. Use its help banner and the
@@ -140,6 +236,21 @@ The root holds release/taxonomy metadata and RepeatPeps; consensus models suppor
 RMBlast/RepeatClassifier, while HMM models support Dfam/NHMMER validation. The
 compressed HMM partition 1 alone is approximately 2 GB. This curated set is not
 the complete curated-plus-uncurated Dfam release.
+
+If `famdb.py info` reports that the data directory was not found, the software
+may be correctly installed but no default reference has been configured. First
+point it explicitly at your intended database:
+
+```bash
+famdb.py -i "$DFAM_DIR" info
+```
+
+Set `DFAM_DIR` to the actual directory containing the HDF5 partitions before
+running that command. A file named `Dfam.h5`, `RepeatMaskerLib.h5` or
+`min_init.0.h5` alone does not establish that a complete Dfam 4.0 component set is
+installed. Verify release/format metadata and component availability, then reuse
+or install the needed files. Configure the default directory in the next section
+so RepeatClassifier can find the same reference without `-i`.
 
 Reuse an already complete Dfam 4.0 directory where possible. To download the
 curated set into a new directory, set a real writable path and run:

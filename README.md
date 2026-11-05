@@ -178,20 +178,47 @@ Installing the software does not download the Dfam database.
 
 ## Installation
 
-Recommended: Micromamba / Conda
+Recommended: Micromamba / Conda on Linux. The Dfam 4.0 workflow is currently on
+`feature/dfam40-validation`; use that branch when installing.
 
-Create environment:
-```
-micromamba create -n drayte -f environment.yml --strict-channel-priority
-micromamba activate drayte
-pip install -e .
+For a new checkout:
+
+```bash
+git clone --branch feature/dfam40-validation https://github.com/francicco/DRayTEannotator2.git
+cd DRayTEannotator2
+
+# Use these isolation settings in DRayTE job scripts as well.
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH
+
+micromamba create -n drayann2 -f environment.yml --strict-channel-priority &&
+micromamba activate drayann2 &&
+python -I -m pip check &&
+drayte --help
 ```
 
-Alternative: Python virtualenv
+The environment file installs DRayTE in editable mode with its FamDB Python
+extra. Expected Conda versions are RepeatMasker **4.2.4**, RepeatModeler **2.0.9**,
+FamDB **3.0.0** and HMMER **3.4**. Verify them with:
+
+```bash
+micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|pyfaidx|pybedtools'
+command -v drayte RepeatMasker RepeatModeler famdb.py nhmmer
 ```
-python -m venv drayte
-source drayte/bin/activate
-pip install -e .
+
+Executables should come from the active `drayann2` environment. Dfam **4.0 is a
+separate database download**; installing FamDB 3.0.0 does not install its data.
+Continue with [database setup and tool paths](docs/environment.md#install-or-reuse-dfam-40)
+before running the full pipeline. The guide also covers
+[updating an existing checkout](docs/environment.md#update-an-existing-checkout)
+and [migration from an earlier environment](docs/environment.md#use-drayann2-for-an-existing-installation).
+
+Alternative: Python virtualenv (Python package only; install external tools separately):
+
+```bash
+python -m venv .venv-drayann2
+source .venv-drayann2/bin/activate
+python -m pip install -e '.[famdb]'
 ```
 
 -----
