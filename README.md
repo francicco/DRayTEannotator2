@@ -195,7 +195,6 @@ unset PYTHONPATH
 micromamba create -f environment.yml --strict-channel-priority &&
 micromamba activate drayann2-dfam4 &&
 python -I -m pip check &&
-heliano --version &&
 drayte --help
 ```
 
