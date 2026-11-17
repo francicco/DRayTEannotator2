@@ -72,9 +72,9 @@ values below are those printed in the Hmel example run.
 
 | Setting | Effect |
 | --- | --- |
-| `mode: loose` | Allows fragments of the same repeat family, class, and strand on the same scaffold to merge across interruptions such as simple repeats, low-complexity hits, or hits marked as nested. `strict` merges only consecutive compatible hits. |
+| `mode: loose` | Allows fragments of the same repeat family, class, and strand on the same scaffold to merge across interruptions such as simple repeats, low-complexity hits, or hits marked as nested. `strict` merges only compatible hits that are consecutive among the hits eligible for locus construction. |
 | `max_gap: 150` | Allows up to 150 genomic bases between consecutive fragments of a merged locus. A hit ending at 200 and a hit starting at 351 have a 150 bp gap. Hits that overlap on the genome are ineligible for merging. |
-| `include_nested: false` | Excludes hits fully contained within a longer hit on the same scaffold from the main refined loci. Nested hits are recorded in `<species>.nestedRepeats.gff3`. |
+| `include_nested: false` | Excludes hits fully contained within a longer hit on the same scaffold when building the main refined loci. Set `true` to include those hits in locus construction. TE-refine writes `<species>.nestedRepeats.gff3` with either setting. |
 | `resolve_overlaps: true` | Produces a separate non-overlapping annotation. TE-refine ranks whole loci that overlap and keeps each locus if it fits without overlapping one already selected. |
 | `overlap_score: longest_lowdiv` | Ranks loci by genomic span in bp minus 25 times the mean RepeatMasker percent divergence across their fragments. The span includes gaps between merged fragments. For example, a 1,000 bp locus at 10% divergence scores 750, and a 900 bp locus at 5% scores 775. |
 | `max_consensus_overlap: 50` | Intended to limit overlap between fragment alignments on the repeat consensus. The merge functions currently ignore this value. |
@@ -82,6 +82,20 @@ values below are those printed in the Hmel example run.
 
 TE-refine records both consensus settings in the log and refinement manifest.
 The merge functions apply `max_gap` to the genomic coordinates.
+
+The other overlap scores are `longest`, which ranks by genomic span, and
+`lowest_divergence`, which ranks by the lowest mean percent divergence across
+the RepeatMasker fragments in each locus.
+
+Standalone `TE-refine` defaults to `--mode strict`. Pass `--resolve-overlaps`
+to produce the filtered annotation or `--include-nested` to include nested hits
+when building refined loci. The integrated workflow defaults to `mode: loose`
+and `resolve_overlaps: true`. Its filtered summary reads
+`<species>.filteredRepeats.tsv`, which overlap resolution generates.
+
+Each legacy top-level `refinement_*` setting takes precedence over the
+corresponding `annotation_refinement` key when both are set. For example,
+`refinement_max_gap` overrides `annotation_refinement.max_gap`.
 
 The integrated workflow writes `<species>.refinedRepeats.gff3` with overlap
 annotations and `<species>.filteredRepeats.gff3` with the selected non-overlapping
@@ -483,6 +497,9 @@ TE-refine \
   --resolve-overlaps \
   --overlap-score longest_lowdiv
 ```
+
+`--rmout` selects the RepeatMasker `.out` file, `--species` sets the output
+filename prefix, and `--outdir` sets the destination directory.
 
 TE summary
 ```
