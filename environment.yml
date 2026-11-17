@@ -28,6 +28,8 @@ dependencies:
   - repeatmasker=4.2.4
   - famdb=3.0.0
   - hmmer=3.4
+  # RMBlast also provides blastn, blastx, and makeblastdb. The separate blast
+  # package can overwrite these executables in the same environment.
   - rmblast>=2.17.0
   - repeatscout>=1.0.6
   - recon=1.10
@@ -39,7 +41,6 @@ dependencies:
   - heliano=1.3.1
 
   # Alignment, sequence extraction, consensus extension and curation.
-  - blast
   - bedtools
   - samtools
   - seqtk

@@ -66,6 +66,22 @@ create the environment above or add HELIANO to an existing installation below.
 
 ## Existing environments
 
+The RMBlast package includes `makeblastdb`, `blastn`, and `blastx`. Earlier
+environment files also installed `blast`, whose executables can overwrite the
+RMBlast copies. RepeatClassifier 2.0.9 passes `-blastdb_version 4` to
+`makeblastdb`. BLAST 2.5.0 rejects that option.
+
+If `drayann2-dfam4` has both `blast` and `rmblast` 2.17.0 or later, remove the
+standalone `blast` package and reinstall RMBlast to restore the shared files.
+Check the removal plan before accepting the transaction.
+
+```bash
+micromamba remove -n drayann2-dfam4 --no-prune-deps blast &&
+micromamba install -n drayann2-dfam4 -c conda-forge -c bioconda \
+  --strict-channel-priority --force-reinstall rmblast &&
+micromamba run -n drayann2-dfam4 makeblastdb -version
+```
+
 If `drayann2-dfam4` was created before HELIANO was added, install HELIANO into it:
 
 ```bash
@@ -84,9 +100,10 @@ scripts before retiring the old environment.
 Verify the software actually selected by this environment:
 
 ```bash
-command -v python RepeatMasker RepeatModeler RepeatClassifier famdb.py nhmmer heliano
+command -v python RepeatMasker RepeatModeler RepeatClassifier rmblastn makeblastdb famdb.py nhmmer heliano
 RepeatMasker -h 2>&1 | sed -n '1,8p'
 RepeatModeler -version
+makeblastdb -version
 famdb.py --help
 nhmmer -h
 heliano --version
@@ -347,10 +364,10 @@ existing checkpoints, so do not bypass their input-mismatch checks.
 
 ## Local audit status
 
-The current manifest resolved 509 packages in a strict-priority Linux x86-64
+The current manifest resolved 504 packages in a strict-priority Linux x86-64
 Mamba dry run with Linux 4.18 and glibc 2.28 virtual-system settings. The
-solution included RepeatMasker 4.2.4, RepeatModeler 2.0.9, FamDB 3.0.0,
-HMMER 3.4, and HELIANO 1.3.1.
+solution included RepeatMasker 4.2.4, RepeatModeler 2.0.9, RMBlast 2.17.0,
+FamDB 3.0.0, HMMER 3.4, and HELIANO 1.3.1. RMBlast provided the BLAST commands.
 
 Use `--dry-run` with the Micromamba create command to check the package plan on
 the target platform. The local dry run validated Conda package resolution. The

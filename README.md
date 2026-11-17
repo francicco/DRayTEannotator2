@@ -203,8 +203,9 @@ It includes RepeatMasker **4.2.4**, RepeatModeler **2.0.9**, FamDB **3.0.0**,
 HMMER **3.4**, and HELIANO **1.3.1**. Verify the installed tools with:
 
 ```bash
-micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|heliano|pyfaidx|pybedtools'
-command -v drayte RepeatMasker RepeatModeler famdb.py nhmmer heliano
+micromamba list | grep -E 'repeatmasker|repeatmodeler|rmblast|famdb|hmmer|heliano|pyfaidx|pybedtools'
+command -v drayte RepeatMasker RepeatModeler makeblastdb famdb.py nhmmer heliano
+makeblastdb -version
 ```
 
 Activate `drayann2-dfam4` in each DRayTE job. For Helitron discovery, set
@@ -215,7 +216,7 @@ Dfam **4.0** data are a separate download. Follow the
 [database setup and tool paths](docs/environment.md#install-or-reuse-dfam-40)
 before running the full pipeline. The guide also covers
 [updating an existing checkout](docs/environment.md#update-an-existing-checkout)
-and [adding HELIANO to an existing environment](docs/environment.md#existing-environments).
+and [repairing an existing environment](docs/environment.md#existing-environments).
 
 Alternative: Python virtualenv (Python package only; install external tools separately):
 
