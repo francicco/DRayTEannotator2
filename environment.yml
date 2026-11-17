@@ -1,7 +1,7 @@
 # Linux/HPC environment. Verified upstream releases as of 2026-11-03.
 # Dfam 4.0 data and Pfam profiles must be installed separately (see docs/environment.md).
 # Extension also needs an existing cross_match executable; set phrap_dir in the run YAML.
-name: drayann2
+name: drayann2-dfam4
 channels:
   - conda-forge
   - bioconda
@@ -36,6 +36,7 @@ dependencies:
   - genometools-genometools
   - ltr_retriever>=2.9
   - ninja-nj
+  - heliano=1.3.1
 
   # Alignment, sequence extraction, consensus extension and curation.
   - blast

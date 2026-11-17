@@ -2,22 +2,21 @@
 
 The environment targets Linux/HPC. The release audit verified upstream
 RepeatMasker 4.2.4, RepeatModeler 2.0.9 and FamDB 3.0.0. These versions are pinned
-in `environment.yml`; HMMER is pinned to 3.4. RepeatModeler 2.0.9 explicitly
-supports RepeatMasker 4.2.4 and Dfam 4.0.
+in `environment.yml`, along with HMMER 3.4 and HELIANO 1.3.1. RepeatModeler
+2.0.9 supports RepeatMasker 4.2.4 and Dfam 4.0.
 
 Sources:
 [RepeatMasker releases](https://www.repeatmasker.org/RepeatMasker/),
 [RepeatModeler releases](https://github.com/Dfam-consortium/RepeatModeler/releases),
 [RepeatMasker recipe](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/repeatmasker/meta.yaml),
 [RepeatModeler recipe](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/repeatmodeler/meta.yaml),
-[FamDB recipe](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/famdb/meta.yaml).
+[FamDB recipe](https://github.com/bioconda/bioconda-recipes/blob/master/recipes/famdb/meta.yaml),
+[HELIANO recipe](https://bioconda.github.io/recipes/heliano/README.html).
 
 ## Create the environment
 
-The canonical environment name is **drayann2**. The Dfam 4.0 workflow is currently
-on `feature/dfam40-validation`, so install from that branch's `environment.yml`.
-Use either a fresh installation below or the existing-installation migration;
-there is no need to run both.
+The environment name is **drayann2-dfam4**. Install from the
+`feature/dfam40-validation` branch's `environment.yml`.
 
 For a new checkout:
 
@@ -33,13 +32,14 @@ such as Cactus before installing:
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
 
-micromamba create -n drayann2 -f environment.yml --strict-channel-priority &&
-micromamba activate drayann2 &&
+micromamba create -f environment.yml --strict-channel-priority &&
+micromamba activate drayann2-dfam4 &&
 python -I -m pip check &&
+heliano --version &&
 drayte --help
 ```
 
-Include the Python-isolation settings and `micromamba activate drayann2` in each
+Include the Python-isolation settings and `micromamba activate drayann2-dfam4` in each
 DRayTE job script. They apply to that shell/job; they do not change other software
 installations. The file uses conda-forge/bioconda and excludes implicit defaults.
 It installs DRayTE in editable mode with the FamDB Python extra from this
@@ -61,78 +61,49 @@ git pull --ff-only origin feature/dfam40-validation
 The stash retains the previous local settings. Inspect it with
 `git stash show -p 'stash@{0}'` and transfer the required settings into your run
 YAML. Applying it wholesale can reintroduce the old template. Other local changes
-may still require review if Git refuses the switch. After a successful update,
-use the environment-creation command above or the migration below.
+may still require review if Git refuses the switch. After updating the checkout,
+create the environment above or add HELIANO to an existing installation below.
 
-## Use drayann2 for an existing installation
+## Existing environments
 
-If `drayann-dfam40-clean` is your verified working environment and `drayann2` does
-not already exist, export its exact Conda packages and recreate them under the
-new name. This relinks installed paths correctly. The editable DRayTE package is
-reinstalled separately because an explicit Conda export does not include pip
-packages. Custom `famdb.conf` settings are also not copied by this export; set
-its default reference directory again using the instructions below.
-Any additional pip-only packages or manually edited environment files
-need separate handling; the earlier clean installation only required the editable
-DRayTE package.
-
-Run from the updated repository checkout:
+If `drayann2-dfam4` was created before HELIANO was added, install HELIANO into it:
 
 ```bash
-export PYTHONNOUSERSITE=1
-unset PYTHONPATH
-
-micromamba env export -n drayann-dfam40-clean --explicit > "$HOME/drayann2.explicit.txt" &&
-micromamba create -n drayann2 -f "$HOME/drayann2.explicit.txt" &&
-micromamba activate drayann2 &&
-python -I -m pip install --no-deps -e '.[famdb]' &&
-python -I -m pip check &&
-drayte --help
+micromamba install -n drayann2-dfam4 -c conda-forge -c bioconda \
+  --strict-channel-priority 'heliano=1.3.1' &&
+micromamba run -n drayann2-dfam4 heliano --version
 ```
 
-Recheck the software versions below. To remove the three earlier DrayAnn
-environments after validating `drayann2`, run:
-
-```bash
-micromamba activate drayann2 &&
-python -I -m pip check &&
-drayte --help >/dev/null &&
-micromamba env remove -n drayann731 -y &&
-micromamba env remove -n drayann-dfam40 -y &&
-micromamba env remove -n drayann-dfam40-clean -y
-
-micromamba env list
-```
-
-This cleanup targets only the three named DrayAnn environments. Keep separate
-HELIANO/EarlGrey installations that your workflow still calls. Regenerate your
-run YAML after migration so absolute executable paths refer to `drayann2` rather
-than a deleted environment. The Dfam data/default directory still needs the
-configuration described below.
+For an older environment name, create `drayann2-dfam4` from the updated manifest.
+Point the new environment at your existing Dfam data using the steps below.
+Update executable paths in your run YAML and activate the new environment in job
+scripts before retiring the old environment.
 
 ## Verify the installed software
 
 Verify the software actually selected by this environment:
 
 ```bash
-command -v python RepeatMasker RepeatModeler RepeatClassifier famdb.py nhmmer
+command -v python RepeatMasker RepeatModeler RepeatClassifier famdb.py nhmmer heliano
 RepeatMasker -h 2>&1 | sed -n '1,8p'
 RepeatModeler -version
 famdb.py --help
 nhmmer -h
+heliano --version
 python -I -c 'import Bio, yaml, pandas, numpy, matplotlib, pyfaidx, pybedtools, h5py, tabulate; print("Python imports OK")'
 perl -MGD::Simple -e 'print "GD::Simple OK\n"'
 Rscript -e 'library(tidyverse); library(ggplot2); library(scales); library(Biostrings); library(BSgenome); cat("R libraries OK\n")'
 ```
 
 The package list should contain RepeatMasker **4.2.4**, RepeatModeler **2.0.9**,
-FamDB **3.0.0**, HMMER **3.4**, `pyfaidx` and `pybedtools`. Check it with:
+FamDB **3.0.0**, HMMER **3.4**, HELIANO **1.3.1**, `pyfaidx` and `pybedtools`.
+Check it with:
 
 ```bash
-micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|pyfaidx|pybedtools'
+micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|heliano|pyfaidx|pybedtools'
 ```
 
-The command paths should be inside the active `drayann2` prefix. If an installed
+The command paths should be inside the active `drayann2-dfam4` prefix. If an installed
 package is absent or older than these pins, the environment does not match the
 current manifest. Resolve that before configuring the pipeline.
 
@@ -163,7 +134,7 @@ type -a python RepeatMasker RepeatModeler famdb.py
 import json
 import sys
 from pathlib import Path
-wanted = {"repeatmasker", "repeatmodeler", "famdb", "hmmer"}
+wanted = {"repeatmasker", "repeatmodeler", "famdb", "hmmer", "heliano"}
 found = {}
 for path in (Path(sys.prefix) / "conda-meta").glob("*.json"):
     record = json.loads(path.read_text())
@@ -207,10 +178,11 @@ This environment does not install the following reference data or external tools
   and run `hmmpress` for the protein `hmmscan` database.
 - `cross_match`: the customized consensus-extension script invokes this executable
   from `phrap_dir`. Keep your existing installation or install it separately.
-- HELIANO, if `structure.heliano.enabled` is true. Keep the configured installation
-  and its own dependencies. It is disabled in the default template.
 - TE-Aid, if running that separate/manual inspection workflow. The current main
   curation runner copies existing extension artifacts; it does not invoke TE-Aid.
+
+For Helitron discovery with the installed HELIANO, set `structure.heliano.enabled`
+to `true` and `structure.heliano.bin` to `heliano` in the run configuration.
 
 A package solve is not a full workflow test. Check these configured tools and run
 the Hmel classification test before claiming cluster execution is validated.
@@ -338,10 +310,10 @@ test -s "$REPEATPEPS_DIR/RepeatPeps.lib"
 
 ## Avoid accidentally using the old binaries
 
-Installing new packages does not override absolute paths in a run YAML. In
-particular, the previous default pointed at RepeatModeler 2.0.4. The template now
-uses an explicit placeholder for the 2.0.9 directory and the `RepeatMasker`
-command on PATH.
+Installing new packages does not override absolute paths in a run YAML. Replace
+the `CONDAENV` placeholders in a copy of the template with the active environment's
+full path. Set the extension script path to the repository checkout as described
+below.
 
 Inspect the active environment's paths:
 
@@ -349,7 +321,7 @@ Inspect the active environment's paths:
 python - <<'PYPATHS'
 from pathlib import Path
 import shutil
-for name in ('RepeatModeler', 'RepeatMasker', 'RepeatClassifier', 'RepeatScout', 'RAMExtend', 'faToTwoBit', 'famdb.py', 'nhmmer', 'mmseqs'):
+for name in ('RepeatModeler', 'RepeatMasker', 'RepeatClassifier', 'RepeatScout', 'RAMExtend', 'faToTwoBit', 'famdb.py', 'nhmmer', 'mmseqs', 'heliano'):
     path = shutil.which(name)
     print(f'{name}: {Path(path).resolve() if path else "MISSING"}')
 PYPATHS
@@ -375,18 +347,13 @@ existing checkpoints, so do not bypass their input-mismatch checks.
 
 ## Local audit status
 
-The environment declaration was checked against pipeline imports, invoked tools,
-upstream source and current Bioconda recipes. After resolving an index-fetch
-failure and removing the incompatible broad BioPerl metapackage, a strict-priority
-Linux x86-64 Conda dry run resolved 504 packages. Cross-platform resolution used
-Linux 4.18 / glibc 2.28 virtual-system settings, not a measured BluePebble node.
-The solution included RepeatMasker 4.2.4, RepeatModeler 2.0.9, FamDB 3.0.0,
-HMMER 3.4, Perl 5.32.1, GD 2.84 and h5py 3.16.0.
+The current manifest resolved 509 packages in a strict-priority Linux x86-64
+Mamba dry run with Linux 4.18 and glibc 2.28 virtual-system settings. The
+solution included RepeatMasker 4.2.4, RepeatModeler 2.0.9, FamDB 3.0.0,
+HMMER 3.4, and HELIANO 1.3.1.
 
-Run `uname -m` and `getconf GNU_LIBC_VERSION` on the target node, and perform the
-Micromamba dry run there before installation. This local dry run validated Conda
-package resolution; it did not install the environment, execute the editable pip
-step, install databases or run the cluster genome workflow. Repository checks
-passed with 487 tests passed / 3 skipped, and `perl -c davidExtendConsRAM.pl`
-passed. Renderer dispatch tests cover custom Python and upstream Perl selection,
-not full alignment rendering with an installed RepeatModeler stack.
+Use `--dry-run` with the Micromamba create command to check the package plan on
+the target platform. The local dry run validated Conda package resolution. The
+editable install, database setup, and workflow execution require checks on
+BluePebble. Earlier repository checks reported 487 passing tests and 3 skips,
+and `perl -c davidExtendConsRAM.pl` passed.

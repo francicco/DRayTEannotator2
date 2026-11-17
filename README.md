@@ -30,6 +30,7 @@ Genome annotation
 TE-refine post-processing
     ↓
 Summary generation
+```
 
 -----
 
@@ -178,8 +179,8 @@ Installing the software does not download the Dfam database.
 
 ## Installation
 
-Recommended: Micromamba / Conda on Linux. The Dfam 4.0 workflow is currently on
-`feature/dfam40-validation`; use that branch when installing.
+Use Micromamba on Linux. Install from `feature/dfam40-validation` to use the
+Dfam 4.0 workflow.
 
 For a new checkout:
 
@@ -191,27 +192,31 @@ cd DRayTEannotator2
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
 
-micromamba create -n drayann2 -f environment.yml --strict-channel-priority &&
-micromamba activate drayann2 &&
+micromamba create -f environment.yml --strict-channel-priority &&
+micromamba activate drayann2-dfam4 &&
 python -I -m pip check &&
+heliano --version &&
 drayte --help
 ```
 
-The environment file installs DRayTE in editable mode with its FamDB Python
-extra. Expected Conda versions are RepeatMasker **4.2.4**, RepeatModeler **2.0.9**,
-FamDB **3.0.0** and HMMER **3.4**. Verify them with:
+`environment.yml` creates `drayann2-dfam4` and installs DRayTE from the checkout.
+It includes RepeatMasker **4.2.4**, RepeatModeler **2.0.9**, FamDB **3.0.0**,
+HMMER **3.4**, and HELIANO **1.3.1**. Verify the installed tools with:
 
 ```bash
-micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|pyfaidx|pybedtools'
-command -v drayte RepeatMasker RepeatModeler famdb.py nhmmer
+micromamba list | grep -E 'repeatmasker|repeatmodeler|famdb|hmmer|heliano|pyfaidx|pybedtools'
+command -v drayte RepeatMasker RepeatModeler famdb.py nhmmer heliano
 ```
 
-Executables should come from the active `drayann2` environment. Dfam **4.0 is a
-separate database download**; installing FamDB 3.0.0 does not install its data.
-Continue with [database setup and tool paths](docs/environment.md#install-or-reuse-dfam-40)
+Activate `drayann2-dfam4` in each DRayTE job. For Helitron discovery, set
+`structure.heliano.enabled: true` and `structure.heliano.bin: heliano` in your
+run YAML so it uses HELIANO from the active environment.
+
+Dfam **4.0** data are a separate download. Follow the
+[database setup and tool paths](docs/environment.md#install-or-reuse-dfam-40)
 before running the full pipeline. The guide also covers
 [updating an existing checkout](docs/environment.md#update-an-existing-checkout)
-and [migration from an earlier environment](docs/environment.md#use-drayann2-for-an-existing-installation).
+and [adding HELIANO to an existing environment](docs/environment.md#existing-environments).
 
 Alternative: Python virtualenv (Python package only; install external tools separately):
 

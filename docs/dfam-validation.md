@@ -185,19 +185,19 @@ This mode requires FASTA input and cannot be combined with legacy `--dfam-db` or
 
 ## First cluster test on an existing TE library
 
-Update the `feature/dfam40-validation` checkout and activate `drayann2`, following
+Update the `feature/dfam40-validation` checkout and activate `drayann2-dfam4`, following
 the [installation guide](environment.md). For each DRayTE shell or job:
 
 ```bash
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
-micromamba activate drayann2
+micromamba activate drayann2-dfam4
 ```
 
 The environment installation already installs the editable DRayTE package with
 its FamDB extra. If you need to register a different checkout, run
 `python -I -m pip install -e '.[famdb]'` from that checkout. Confirm that `famdb.py`
-and `nhmmer` resolve inside `drayann2`, or set their intended absolute executable
+and `nhmmer` resolve inside `drayann2-dfam4`, or set their intended absolute executable
 paths in the configuration.
 
 For an existing run, add only the nested `classification.dfam` block to a copy of
