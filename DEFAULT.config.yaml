@@ -1,61 +1,49 @@
 genome: GENOMEPATH
 outdir: OUTPUTDIR
 species: SPECIESTAG
-threads: 16
-preset: Collembola
-
-# Opt in to verified evidence archives and removal of completed-stage scratch.
-# Rerunning drayte automatically restores managed evidence before stage checks.
+threads: 4
+preset: generic_insect
 storage:
-  mode: keep  # use compact for batch runs after validating your workflow
-
-# For the Conda environment, use the resolved RepeatModeler executable directory:
-#   python -c 'import pathlib,shutil; print(pathlib.Path(shutil.which("RepeatModeler")).resolve().parent)'
-repeatmodeler_dir: Path-to-RepeatModeler-2.0.9
-repeatscout_dir: Path-to-environment-bin
-repeatmasker_bin: RepeatMasker
-# Use this repository's customized extension script (not an upstream copy).
-repeatmodeler_extend_script: Path-to-DRayTEannotator2/davidExtendConsRAM.pl
-repeatclassifier_bin: RepeatClassifier
-ucsc_tools_dir: Path-to-environment-bin
-repeat_after_me_dir: Path-to-environment-bin
-phrap_dir: /user/work/tk19812/software/phrap
-
-repeatpeps_db_dir: Path-to-Dfam-4.0-RepeatPeps
+  mode: keep
+repeatmodeler_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/share/RepeatModeler"
+repeatscout_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
+repeatmasker_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/RepeatMasker"
+repeatmodeler_extend_script: "/user/work/tk19812/software/DRayTEannotator2-Hmel-test/davidExtendConsRAM.pl"
+repeatclassifier_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/RepeatClassifier"
+ucsc_tools_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
+repeat_after_me_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
+phrap_dir: "/user/work/tk19812/software/phrap"
+repeatpeps_db_dir: "/user/work/tk19812/Databases/Dfam_4.0/repeatpeps"
 diamond_bin: diamond
 getorf_bin: getorf
 cdhit_est_bin: cd-hit-est
-
 cdhit_identity: 0.95
-# Concurrent family-extension jobs; null uses threads, 1 restores serial mode.
-extension_workers: null
+extension_workers: 16
 extension_max_hits: 50
 extension_left_buffer: 100
 extension_right_buffer: 100
 min_orf: 500
 structure:
   heliano:
-    enabled: false
-    bin: /user/work/tk19812/micromamba/envs/earlgrey/bin/heliano
-    mmseqs_bin: mmseqs
-    redundancy_identity: 0.90
-    query_cov: 0.80
+    enabled: true
+    # Use the full path to your HELIANO executable.
+    bin: "/user/work/tk19812/micromamba/envs/earlgrey/bin/heliano"
+    mmseqs_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/mmseqs"
+    redundancy_identity: 0.9
+    query_cov: 0.8
     threads: 16
-
 annotation_refinement:
   mode: loose
   max_gap: 150
   include_nested: false
   max_consensus_overlap: 50
   max_consensus_jump: 10000
-
 family_inspection:
   enabled: true
   use_symlinks: true
   include_plots: true
   archive: true
   include_non_te_repeats: false
-
 classification:
   enabled: true
   preliminary: true
@@ -63,38 +51,33 @@ classification:
   min_orf_nt: 300
   forward_only: false
   pfam_db: Path-to-Pfam-A.hmm
-  hmmscan_bin: hmmscan
-
-  # Optional final Dfam validation. Set enabled: false to run without Dfam.
-  # Fill database with the FamDB DIRECTORY (not an individual .h5 partition).
-  # For an exported nucleotide HMM file, set database to that file and taxon: null.
-  # This block supersedes the legacy flat dfam_db setting; do not run both paths.
+  hmmscan_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/hmmscan"
   dfam:
     enabled: true
-    database: Path-to-Dfam-FamDB
-    taxon: Collembola  # Match the study group; e.g. Lepidoptera for Heliconius.
+    database: Path-to-Dfam.hmm
+    taxon: Lineage
     ancestors: true
     descendants: true
     curated_only: true
     engine: nhmmer
-    famdb_bin: famdb.py
-    nhmmer_bin: nhmmer
-    threads: 16  # CPUs per NHMMER job; keep threads * jobs within the allocation.
+    famdb_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/famdb.py"
+    nhmmer_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/nhmmer"
+    threads: 15  # nhmmer also starts a coordinating thread.
     chunks: 1
     jobs: 1
     require_ga: true
     min_score: 20.0
-    max_evalue: 1.0e-5
-    min_query_coverage: 0.10
-    min_model_coverage: 0.50
+    max_evalue: 1.0e-05
+    min_query_coverage: 0.1
+    min_model_coverage: 0.5
     competition_score_fraction: 0.95
     independent: false
     on_missing: error
-
-  # Existing protein-domain and nucleotide-reference evidence settings.
-  mmseqs_bin: mmseqs
-  mmseqs_rescue_db: null
-  chunks: 40
-  jobs: 40
+  mmseqs_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/mmseqs"
+  # Use the classification FASTA derived from HELICONIINILIB.
+  #mmseqs_rescue_db: "/user/work/tk19812/HeliconiniiProject/TEannotation/Heliconius.classification.fa"
+  chunks: 5
+  jobs: 5
   cpu: 1
-  taxon: Lineage
+  taxon: SPECIESTAG 
+#repeatmodeler_library: "/user/work/tk19812/HeliconiniiProject/TEannotation/Hmel_Earlgrey/Hmel_EarlGrey/Hmel_Database/Hmel-families.fa"
