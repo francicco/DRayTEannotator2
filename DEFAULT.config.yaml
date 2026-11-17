@@ -5,13 +5,13 @@ threads: 4
 preset: generic_insect
 storage:
   mode: keep
-repeatmodeler_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/share/RepeatModeler"
-repeatscout_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
-repeatmasker_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/RepeatMasker"
-repeatmodeler_extend_script: "/user/work/tk19812/software/DRayTEannotator2-Hmel-test/davidExtendConsRAM.pl"
-repeatclassifier_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/RepeatClassifier"
-ucsc_tools_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
-repeat_after_me_dir: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin"
+repeatmodeler_dir: CONDAENV/share/RepeatModeler
+repeatscout_dir: CONDAENV/bin
+repeatmasker_bin: CONDAENV/bin/RepeatMasker
+repeatmodeler_extend_script: CONDAENV/davidExtendConsRAM.pl
+repeatclassifier_bin: CONDAENV/bin/RepeatClassifier
+ucsc_tools_dir: CONDAENV/bin
+repeat_after_me_dir: CONDAENV/bin
 phrap_dir: "/user/work/tk19812/software/phrap"
 repeatpeps_db_dir: "/user/work/tk19812/Databases/Dfam_4.0/repeatpeps"
 diamond_bin: diamond
@@ -27,8 +27,8 @@ structure:
   heliano:
     enabled: true
     # Use the full path to your HELIANO executable.
-    bin: "/user/work/tk19812/micromamba/envs/earlgrey/bin/heliano"
-    mmseqs_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/mmseqs"
+    bin: CONDAENV/bin/heliano
+    mmseqs_bin: CONDAENV/bin/mmseqs
     redundancy_identity: 0.9
     query_cov: 0.8
     threads: 16
@@ -51,7 +51,7 @@ classification:
   min_orf_nt: 300
   forward_only: false
   pfam_db: Path-to-Pfam-A.hmm
-  hmmscan_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/hmmscan"
+  hmmscan_bin: CONDAENV/bin/hmmscan
   dfam:
     enabled: true
     database: Path-to-Dfam.hmm
@@ -60,8 +60,8 @@ classification:
     descendants: true
     curated_only: true
     engine: nhmmer
-    famdb_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/famdb.py"
-    nhmmer_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/nhmmer"
+    famdb_bin: CONDAENV/bin/famdb.py
+    nhmmer_bin: CONDAENV/bin/nhmmer
     threads: 15  # nhmmer also starts a coordinating thread.
     chunks: 1
     jobs: 1
@@ -73,11 +73,10 @@ classification:
     competition_score_fraction: 0.95
     independent: false
     on_missing: error
-  mmseqs_bin: "/user/work/tk19812/micromamba/envs/drayann2-hmel-test/bin/mmseqs"
+  mmseqs_bin: CONDAENV/bin/mmseqs
   # Use the classification FASTA derived from HELICONIINILIB.
   #mmseqs_rescue_db: "/user/work/tk19812/HeliconiniiProject/TEannotation/Heliconius.classification.fa"
   chunks: 5
   jobs: 5
   cpu: 1
   taxon: SPECIESTAG 
-#repeatmodeler_library: "/user/work/tk19812/HeliconiniiProject/TEannotation/Hmel_Earlgrey/Hmel_EarlGrey/Hmel_Database/Hmel-families.fa"
