@@ -54,10 +54,10 @@ Summary generation
     * strict: conservative merging
     * loose: permissive merging across intervening elements
 * Nested TE detection
-* Consensus-coordinate consistency filtering
 * Outputs:
     * *.refinedRepeats.gff3
     * *.refinedRepeats.bed
+    * *.nestedRepeats.gff3
     * *.annotation_refinement.tsv
     * *.annotation_refinement.stats.tsv
     * *.annotation_refinement.manifest.json
@@ -66,21 +66,26 @@ Summary generation
 
 ## TE-refine post-processing
 
-DRayTEannotator2 implements overlap-aware TE refinement inspired by RepeatCraft and interval-graph optimisation strategies.
+TE-refine joins compatible RepeatMasker hits into repeat loci. In the integrated
+workflow, set these options under `annotation_refinement` in the run YAML. The
+values below are those printed in the Hmel example run.
 
-Features include:
+| Setting | Effect |
+| --- | --- |
+| `mode: loose` | Allows fragments of the same repeat family, class, and strand on the same scaffold to merge across interruptions such as simple repeats, low-complexity hits, or hits marked as nested. `strict` merges only consecutive compatible hits. |
+| `max_gap: 150` | Allows up to 150 genomic bases between consecutive fragments of a merged locus. A hit ending at 200 and a hit starting at 351 have a 150 bp gap. Hits that overlap on the genome are ineligible for merging. |
+| `include_nested: false` | Excludes hits fully contained within a longer hit on the same scaffold from the main refined loci. Nested hits are recorded in `<species>.nestedRepeats.gff3`. |
+| `resolve_overlaps: true` | Produces a separate non-overlapping annotation. TE-refine ranks whole loci that overlap and keeps each locus if it fits without overlapping one already selected. |
+| `overlap_score: longest_lowdiv` | Ranks loci by genomic span in bp minus 25 times the mean RepeatMasker percent divergence across their fragments. The span includes gaps between merged fragments. For example, a 1,000 bp locus at 10% divergence scores 750, and a 900 bp locus at 5% scores 775. |
+| `max_consensus_overlap: 50` | Intended to limit overlap between fragment alignments on the repeat consensus. The merge functions currently ignore this value. |
+| `max_consensus_jump: 10000` | Intended to limit the jump between fragment alignments on the repeat consensus. The merge functions currently ignore this value. |
 
-* RepeatMasker defragmentation
-* nested insertion detection
-* overlap-aware annotation
-* conflict resolution
-* interval scheduling optimisation
-* divergence-aware scoring
+TE-refine records both consensus settings in the log and refinement manifest.
+The merge functions apply `max_gap` to the genomic coordinates.
 
-Two complementary annotation layers are produced:
-
-* overlap-aware annotations
-* filtered non-overlapping annotations
+The integrated workflow writes `<species>.refinedRepeats.gff3` with overlap
+annotations and `<species>.filteredRepeats.gff3` with the selected non-overlapping
+loci under `Defragmenting_RModAnnotation/`.
 
 Summary generation
 
@@ -304,8 +309,12 @@ repeat_after_me_dir: /path/to/RepeatAfterMe
 phrap_dir: /path/to/phrap
 
 # Refinement
-refine_mode: loose
-refine_max_gap: 150
+annotation_refinement:
+  mode: loose
+  max_gap: 150
+  include_nested: false
+  resolve_overlaps: true
+  overlap_score: longest_lowdiv
 ```
 
 Adjust all paths to your local installation.
@@ -470,7 +479,9 @@ TE-refine \
   --species Cant \
   --outdir Cant.annotation_refinement \
   --max-gap 150 \
-  --mode loose
+  --mode loose \
+  --resolve-overlaps \
+  --overlap-score longest_lowdiv
 ```
 
 TE summary
@@ -819,7 +830,7 @@ RepeatCraft focuses primarily on:
 
 DRayTEannotator2 extends this concept with:
 
-* interval-graph optimisation
+* greedy overlap resolution
 * divergence-aware conflict resolution
 * overlap-aware vs filtered annotation layers
 * integrated refinement statistics
