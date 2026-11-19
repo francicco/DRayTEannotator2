@@ -521,6 +521,14 @@ output/
 ├── extension/
 ├── reclassify/
 ├── curation/
+├── classification/
+│   ├── <species>.classified.fa
+│   ├── <species>.classifications.tsv
+│   ├── <species>.evidence.tsv
+│   ├── <species>.dfam_evidence.tsv
+│   ├── <species>.dfam_conflicts.tsv
+│   ├── classification.manifest.json
+│   └── mmseqs/mmseqs_rescue.report.json
 ├── final_annotation/
 ├── annotation_refinement/
 │   ├── *.gff3
@@ -534,13 +542,47 @@ output/
     └── TE composition figures
 ```
 
+### Family-level classification and evidence
+
+The integrated pipeline writes these reports under `<outdir>/classification/`.
+For `species: Hmel`, the main report is `Hmel.evidence.tsv`. Join reports using
+`family_id`.
+
+| File | Contents |
+| --- | --- |
+| `<species>.evidence.tsv` | One row per family with the final class, order, superfamily, confidence, score, input header, Pfam domains, structural evidence, ORFs, MMseqs reference matches, and Dfam validation fields. |
+| `<species>.classifications.tsv` | One row per family with the final classification, status, confidence, score, and supporting evidence. |
+| `<species>.dfam_evidence.tsv` | Dfam alignments with model accessions, scores, E-values, query/model coverage, acceptance or rejection, agreement, contribution, and original/final labels. A family can have several rows; families with no reported alignment appear in the family reports. |
+| `<species>.dfam_conflicts.tsv` | Accepted competing Dfam matches marked as conflicting or ambiguous. |
+| `mmseqs/mmseqs_rescue.report.json` | Selected MMseqs reference evidence, search policy, input provenance, and per-family rescue details. |
+| `classification.manifest.json` | Report paths, input signatures, family counts, Dfam validation status, and the `mmseqs_rescue_impact` counts of classification changes from reference rescue. |
+
+The Dfam reports and validation fields are written when final Dfam validation
+is enabled. The MMseqs report is written when reference rescue runs.
+
+The `original_class`, `original_order`, `original_superfamily`, and related
+`original_*` validation fields record the integrated classifier result immediately
+before final Dfam validation in the same run. `original_header` records the
+identifier from the FASTA entering classification. Use `dfam_agreement` to check
+whether the accepted Dfam evidence is consistent, conflicting, ambiguous, or has
+no reliable match. `dfam_contributed` records whether Dfam filled an unresolved
+label. It also records score/confidence promotion when `independent: true`.
+
+For final Dfam model details, inspect `<species>.dfam_evidence.tsv` and count
+distinct `family_id` values when summarizing families. The MMseqs impact counts
+in the manifest describe changes before final Dfam validation.
+
+See the [Dfam report guide](docs/dfam-validation.md#reports-and-final-library)
+and [MMseqs reference-rescue guide](docs/mmseqs-reference-rescue.md) for details.
+
 -----
 
 ## Important final output:
 
-`curation/Final.RepeatModeler.Lib.fa`
+`classification/<species>.classified.fa`
 
-This is the curated TE library for downstream RepeatMasker annotation.
+The integrated workflow uses this classified TE library for final RepeatMasker
+genome annotation.
 
 -----
 
