@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 from drayte.pipeline import runner
+from drayte.pipeline.preflight import PreflightReport
 
 
 class StopBeforeDiscovery(Exception):
@@ -24,6 +25,7 @@ def capture_pipeline_config(tmp_path, monkeypatch, classification, extra_args):
     config_path.write_text(yaml.safe_dump(raw))
     monkeypatch.setattr(sys, "argv", ["drayte", "--config", str(config_path), *extra_args])
     monkeypatch.setattr(runner, "setup_logger", lambda **kwargs: logging.getLogger("test.pipeline.cli"))
+    monkeypatch.setattr(runner, "check_preflight", lambda config: PreflightReport())
     captured = {}
 
     def stop_discovery(config, logger):

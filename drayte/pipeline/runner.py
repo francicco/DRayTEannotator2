@@ -1,9 +1,11 @@
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 from drayte.pipeline.config import ConfigError, load_config
+from drayte.pipeline.preflight import PreflightError, check_preflight
 from drayte.structure import heliano
 from drayte.utils.logging import setup_logger
 from drayte.utils.paths import ensure_dir
@@ -29,6 +31,10 @@ from drayte.storage.policy import cleanup_stage_scratch, compact_completed_exten
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="DRayTE pipeline runner")
     parser.add_argument("--config", required=True, help="Path to YAML config file")
+    parser.add_argument(
+        "--check-only", action="store_true",
+        help="Check configured tools and input paths, then exit without starting or modifying a run.",
+    )
     parser.add_argument(
         "--repeatmodeler-library",
         default=None,
@@ -270,6 +276,13 @@ def main() -> None:
             raise ValueError("The storage config section must be a mapping")
         settings["mode"] = args.storage_mode
     mode = storage_mode(config)
+    try:
+        preflight = check_preflight(config)
+    except PreflightError as error:
+        raise SystemExit(f"drayte: error: Pre-flight check failed for '{args.config}':\n{error}") from None
+    print(preflight.format(detailed=args.check_only), file=sys.stderr)
+    if args.check_only:
+        return
     # Restoration precedes every stage, including its checkpoint validation.
     with output_lock(config.outdir_path):
         ArchiveStore(config.outdir_path).restore_all()

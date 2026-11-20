@@ -370,6 +370,24 @@ its `GENOME` variable contains the genome FASTA path before generating the file.
 Unreadable configuration files and malformed YAML also produce a concise error;
 YAML syntax errors include the line and column.
 
+Every pipeline invocation checks the configured tools and input paths after
+applying command-line overrides and before creating the output lock, restoring
+archives, opening the run log, or starting stages. Missing executables and input
+files are reported together with the relevant YAML keys. For example, an enabled
+HELIANO stage with a missing `structure.heliano.bin` fails before discovery or
+extension work begins.
+
+Check the setup without starting the pipeline:
+
+```bash
+drayte --config config.yaml --check-only
+```
+
+Keep the same `--repeatmodeler-library` and `--mmseqs-rescue-db` arguments that you
+will use for the run. The check also runs when resuming and locates executables
+without launching them. See [Preflight checks](docs/preflight.md) for conditional
+requirements, warnings, and the limits of a successful check.
+
 Supply a reference FASTA for classification rescue on the command line with:
 
 ```bash

@@ -7,6 +7,7 @@ import pytest
 
 from drayte.pipeline import classification, reclassify, runner
 from drayte.pipeline.config import PipelineConfig
+from drayte.pipeline.preflight import PreflightReport
 from drayte.storage.archive import ArchiveStore
 from drayte.storage.policy import (
     assert_safe_deletions, cleanup_stage_scratch, compact_completed_extension, compact_run, output_lock,
@@ -230,6 +231,7 @@ def test_pipeline_restores_before_any_stage_and_compacts_after_success(completed
         seen.append("pipeline")
 
     monkeypatch.setattr(runner, "run_pipeline", pipeline)
+    monkeypatch.setattr(runner, "check_preflight", lambda config: PreflightReport())
     monkeypatch.setattr(runner, "setup_logger", lambda **kwargs: logging.getLogger("test.storage"))
     runner.main()
     assert seen == ["pipeline"]
@@ -250,6 +252,7 @@ def test_failed_pipeline_retains_restored_evidence(completed_run, tmp_path, monk
     def fail(*args):
         raise RuntimeError("simulated computational failure")
     monkeypatch.setattr(runner, "run_pipeline", fail)
+    monkeypatch.setattr(runner, "check_preflight", lambda config: PreflightReport())
     with pytest.raises(RuntimeError, match="computational failure"):
         runner.main()
     assert (root / "extension/extensionwork/fam1/repam-ranges.tsv").is_file()
