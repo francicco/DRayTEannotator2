@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from drayte.pipeline.config import load_config
+from drayte.pipeline.config import ConfigError, load_config
 from drayte.structure import heliano
 from drayte.utils.logging import setup_logger
 from drayte.utils.paths import ensure_dir
@@ -226,7 +226,10 @@ def log_final_results(
 
 def main() -> None:
     args = parse_args()
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except ConfigError as error:
+        raise SystemExit(f"drayte: error: {error}") from None
 
     if args.repeatmodeler_library:
         config.extra["repeatmodeler_library"] = str(
